@@ -17,17 +17,17 @@
 
 namespace Display
 {
-    void vClearDisplay(Adafruit_ILI9341 &tft);
-    void vInitializeTimerDisplay(Adafruit_ILI9341 &tft, Types::PomodoroState state);
-    void vPrintTemperature(Adafruit_ILI9341 &tft, float temperature);
-    void vPrintHumidity(Adafruit_ILI9341 &tft, float humidity);
-    void vPrintLuminosity(Adafruit_ILI9341 &tft, int luminosity);
-    void vPrintFocusIndex(Adafruit_ILI9341 &tft, float focusIndex);
-    void vPrintFocusIndexUponFocusEnd(Adafruit_ILI9341 &tft, float focusIndex);
-    void vPrintComfortIndex(Adafruit_ILI9341 &tft, float comfortIndex);
-    void vPrintTime(Adafruit_ILI9341 &tft, int minutes, int seconds);
-    void vPrintStateChanged(Adafruit_ILI9341 &tft, Types::PomodoroState state);
-    void vPrintFaceDetectedOnAdjustment(Adafruit_ILI9341 &tft, bool detected);
-    void vPrintAdjustingTimer(Adafruit_ILI9341 &tft, Types::PomodoroState state, int minutes, int seconds);
-    void vPrintTimerAdjustment(Adafruit_ILI9341 &tft, Types::PomodoroState state, int pos, int value);
+    void vClearDisplay(Adafruit_ILI9341 *tft);
+    void vInitializeTimerDisplay(Adafruit_ILI9341 *tft, Types::PomodoroState state);
+    void vPrintTemperature(Adafruit_ILI9341 *tft, float temperature);
+    void vPrintHumidity(Adafruit_ILI9341 *tft, float humidity);
+    void vPrintLuminosity(Adafruit_ILI9341 *tft, int luminosity);
+    void vPrintFocusIndex(Adafruit_ILI9341 *tft, float focusIndex);
+    void vPrintFocusIndexUponFocusEnd(Adafruit_ILI9341 *tft, float focusIndex);
+    void vPrintComfortIndex(Adafruit_ILI9341 *tft, float comfortIndex);
+    void vPrintTime(Adafruit_ILI9341 *tft, int minutes, int seconds);
+    void vPrintStateFinished(Adafruit_ILI9341 *tft, Types::PomodoroState state);
+    void vPrintFaceDetectedOnAdjustment(Adafruit_ILI9341 *tft, bool detected);
+    void vPrintAdjustingTimer(Adafruit_ILI9341 *tft, Types::PomodoroState state, int minutes, int seconds);
+    void vPrintTimerAdjustment(Adafruit_ILI9341 *tft, int pos, int value);
 } // namespace Display

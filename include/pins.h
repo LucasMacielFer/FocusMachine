@@ -14,6 +14,7 @@
 #define PIN_IN_DIG  47 // DHT22
 #define PIN_IN_PIR  45 // PIR
 #define PIN_IN_ANLG 14 // LDR
+#define BUTTON_PIN  0  // Button
 
 // TOUCH
 #define PIN_TOUCH1  T1

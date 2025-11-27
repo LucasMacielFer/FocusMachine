@@ -9,6 +9,7 @@
 #include "types.h"
 #include "pins.h"
 #include "classification.h"
+#include "display.h"
 
 // Sensor lib
 #include <DHT.h>

@@ -1,12 +1,17 @@
 #include "tasks.h"
 
+/* Ultimate stack monitoring device 2000 ultra-XPTO
+    UBaseType_t stackSobra = uxTaskGetStackHighWaterMark(NULL);
+    Serial.printf("[DisplayTask] Stack Livre: %u bytes\n", (unsigned int)stackSobra);
+*/
+
 namespace Tasks
 {
     void vTasksInitialize()
     {
-        //xTaskCreatePinnedToCore(vPomodoroFSMTask, "PomodoroFSM", 4096, NULL, 4, NULL, 0);
+        xTaskCreatePinnedToCore(vPomodoroFSMTask, "PomodoroFSM", 4096, NULL, 4, NULL, 0);
         xTaskCreatePinnedToCore(vBrainTask, "BrainTask", 8192, NULL, 3, NULL, 0);
-        //xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 8192, NULL, 2, NULL, 0);
+        xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 16384, NULL, 2, NULL, 0);
         xTaskCreatePinnedToCore(vCameraInferenceTask, "CameraInferenceTask", 8192, NULL, 1, NULL, 1);
         xTaskCreatePinnedToCore(vDHTSensorTask, "DHTSensorTask", 4096, NULL, 1, NULL, 0);
         //xTaskCreatePinnedToCore(vPIRSensorTask, "PIRSensorTask", 4096, NULL, 1, NULL, 0);
@@ -17,7 +22,56 @@ namespace Tasks
 
     void vPomodoroFSMTask(void* parameter)
     {
-        return;
+        // 30 seconds just for testing purposes
+        //TODO: Write this all properly
+        int minutes = 0;
+        int seconds = 30;
+        Types::StopWatchTime time;
+        Types::DisplayData bundle;
+        bundle.type = Types::DataType::TIME;
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+
+        for(;;)
+        {
+            if (seconds > 0) 
+                seconds--;
+            else
+            {
+                if(minutes > 1)
+                {
+                    minutes--;
+                    seconds = 59;
+                }
+                else
+                {
+                    minutes = 0;
+                    seconds = 0;
+                }
+            }
+            
+            time.minutes = minutes;
+            time.seconds = seconds;
+            bundle.value = static_cast<void*>(&time);   
+
+            xQueueSendToBack(Queues::displayQueue, &bundle, 0);
+            
+            if (minutes <= 0 && seconds <= 0) 
+            {
+                xTaskCreatePinnedToCore(vBuzzerTask, "Task buzzer", 1024, NULL, 1, NULL, 1);
+                bundle.type = Types::DataType::SCREEN_CHANGE_REQUEST;
+                bundle.value = static_cast<void*>(
+                    new Types::ScreenChangeRequest{
+                        Types::PomodoroState::FOCUS,
+                        Types::SystemState::FINISHED,
+                        {0, 0}
+                    }
+                );
+                xQueueSendToBack(Queues::displayQueue, &bundle, 0);
+                vTaskDelete(NULL);
+            }
+
+            vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
+        }
     }
     
     void vBrainTask(void* parameter)
@@ -50,18 +104,42 @@ namespace Tasks
 
         QueueSetMemberHandle_t xActivatedMember;
 
+        // TEMPORARY!!!!!!
+        //TODO Remove this
+        Types::DisplayData displayDataRequest;
+        displayDataRequest.type = Types::DataType::SCREEN_CHANGE_REQUEST;
+        displayDataRequest.value = static_cast<void*>(
+            new Types::ScreenChangeRequest{
+                Types::PomodoroState::FOCUS,
+                Types::SystemState::TIMER,
+                {0, 0}
+            }
+        );
+
+        xQueueSendToBack(displayQueue, &displayDataRequest, 0);
         for(;;)
         {
             xActivatedMember = xQueueSelectFromSet(brainQueueSet, portMAX_DELAY);
             if (xActivatedMember == dhtSensorQueue) 
             {
+                Types::DisplayData displayDataTemp;
+                Types::DisplayData displayDataHum;
+
                 if (xQueueReceive(dhtSensorQueue, &dhtData, 0) == pdTRUE)
                 {
+                    displayDataTemp.type = Types::DataType::TEMPERATURE;
+                    displayDataTemp.value = static_cast<void*>(&dhtData.temperature);
+                    displayDataHum.type = Types::DataType::HUMIDITY;
+                    displayDataHum.value = static_cast<void*>(&dhtData.humidity);
+
                     Serial.print("Temperature: ");
                     Serial.print(dhtData.temperature);
                     Serial.print(" °C, Humidity: ");
                     Serial.print(dhtData.humidity);
                     Serial.println(" %");
+
+                    xQueueSendToBack(displayQueue, &displayDataTemp, 0);
+                    xQueueSendToBack(displayQueue, &displayDataHum, 0);
                 }
             }
 
@@ -83,7 +161,7 @@ namespace Tasks
                     }
                     else
                     {
-                        Serial.println("Erro: TotalTicks é 0");
+                        Serial.println("Error: TotalTicks is 0");
                     }
             }
 
@@ -107,6 +185,7 @@ namespace Tasks
 
             if (xActivatedMember == cameraInferenceQueue) 
             {
+                //TODO : Process camera inference data
                 if (xQueueReceive(cameraInferenceQueue, &faceDetected, 0) == pdTRUE)
                 {
                     Serial.println("Camera Inference Data Received");
@@ -117,7 +196,92 @@ namespace Tasks
 
     void vDisplayTask(void* parameter)
     {
-        return;
+        QueueHandle_t myQueue = Queues::displayQueue;
+        Types::DisplayData displayData;
+
+        float* floatBuffer;
+        int* intBuffer = (int*) malloc(sizeof(int) * 2);
+
+        Adafruit_ILI9341* tft = new Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST, TFT_MISO);
+
+        tft->begin();
+        tft->setRotation(1);
+        
+        for(;;)
+        {
+            if (xQueueReceive(myQueue, &displayData, portMAX_DELAY) == pdTRUE)
+            {
+                //TODO - remove
+                switch (displayData.type)
+                {
+                    case Types::DataType::TEMPERATURE:
+                    {
+                        floatBuffer = (float*) (displayData.value);
+                        Display::vPrintTemperature(tft, *floatBuffer);
+                        break;
+                    }
+                    case Types::DataType::HUMIDITY:
+                    {
+                        floatBuffer = (float*) (displayData.value);
+                        Display::vPrintHumidity(tft, *floatBuffer);
+                        break;
+                    }
+                    case Types::DataType::LUMINOSITY:
+                    {
+                        floatBuffer = (float*) (displayData.value);
+                        Display::vPrintLuminosity(tft, *floatBuffer);
+                        break;
+                    }
+                    case Types::DataType::TIME:
+                    {
+                        intBuffer = *((int (*)[2]) (displayData.value));
+                        Display::vPrintTime(tft, intBuffer[0], intBuffer[1]);
+                        break;
+                    }
+                    case Types::DataType::FOCUS_INDEX:
+                    {
+                        floatBuffer = (float*) (displayData.value);
+                        Display::vPrintFocusIndex(tft, *floatBuffer);
+                        break;
+                    }
+                    case Types::DataType::COMFORT_INDEX:
+                    {
+                        floatBuffer = (float*) (displayData.value);
+                        Display::vPrintComfortIndex(tft, *floatBuffer);
+                        break;
+                    }
+                    case Types::DataType::ADJ_TIME:
+                    {
+                        intBuffer = *((int (*)[2]) (displayData.value));
+                        Display::vPrintTimerAdjustment(tft, intBuffer[0], intBuffer[1]);
+                        break;
+                    }
+                    case Types::DataType::SCREEN_CHANGE_REQUEST:
+                    {
+                        Types::ScreenChangeRequest screenChange = *(Types::ScreenChangeRequest*)displayData.value;
+                        Types::PomodoroState newPomodoroState = screenChange.pomodoroState;
+                        Types::SystemState newSystemState = screenChange.systemState;
+                        switch (newSystemState)
+                        {
+                            case Types::SystemState::TIMER:
+                                Display::vInitializeTimerDisplay(tft, newPomodoroState);
+                                break;
+                            case Types::SystemState::ADJUST:
+                                Display::vPrintAdjustingTimer(tft, newPomodoroState, screenChange.timerCount[0], screenChange.timerCount[1]);
+                                break;
+                            case Types::SystemState::FINISHED:
+                                Display::vPrintStateFinished(tft, newPomodoroState);
+                                break;
+                            default:
+                                break;
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            }
+        }
     }
 
     void vCameraInferenceTask(void* parameter)
@@ -135,11 +299,11 @@ namespace Tasks
             detected = faceDetect(fb, &acc);
             if(detected) 
             {
-                Serial.printf("ROSTO DETECTADO! Precisão: %.2f%%\n", acc * 100);
+                Serial.printf("FACE DETECTED! Accuracy: %.2f%%\n", acc * 100);
             }
             else 
             {
-                Serial.println("Nenhum rosto...");
+                Serial.println("No face detected...");
             }
 
             esp_camera_fb_return(fb);
@@ -181,7 +345,6 @@ namespace Tasks
 
                 displayData.value = static_cast<void*>(&dhtData);
 
-                xQueueSendToBack(displayQueue, &displayData, 0);
                 xQueueOverwrite(dhtSensorQueue, &dhtData);
             }
 
@@ -191,11 +354,13 @@ namespace Tasks
 
     void vPIRSensorTask(void* parameter)
     {
+        //TODO: Implement PIR Sensor Task
         return;
     }
 
     void vLDRSensorTask(void* parameter)
     {
+        //TODO: Implement LDR Sensor Task
         return;
     }
 
@@ -208,7 +373,7 @@ namespace Tasks
             ledcWrite(0, 0);   // Turn off
             vTaskDelay(pdMS_TO_TICKS(100));
         }
-        Serial.println("Buzzer finalizado!");
+        Serial.println("Buzzer finished!");
         vTaskDelete(NULL);
     }
 

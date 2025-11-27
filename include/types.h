@@ -12,7 +12,8 @@ namespace Types
         TIME,
         FOCUS_INDEX,
         COMFORT_INDEX,
-        ADJ_TIME
+        ADJ_TIME,
+        SCREEN_CHANGE_REQUEST
     };
 
     enum class PomodoroState
@@ -20,6 +21,13 @@ namespace Types
         FOCUS,
         SHORT_BREAK,
         LONG_BREAK,
+    };
+
+    enum class SystemState
+    {
+        TIMER,
+        ADJUST,
+        FINISHED
     };
 
     typedef struct
@@ -45,4 +53,11 @@ namespace Types
         uint16_t idleTicks;
         uint16_t totalTicks;
     } SystemMetrics;
+
+    typedef struct
+    {
+        PomodoroState pomodoroState;
+        SystemState systemState;
+        int timerCount[2];
+    } ScreenChangeRequest;
 } // namespace Types

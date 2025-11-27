@@ -6,6 +6,7 @@
 namespace Semaphores
 {
     extern SemaphoreHandle_t sysMonitorSemaphore;
+    extern SemaphoreHandle_t pirEventSemaphore;
 
     void vCreateSemaphores(void);
 } // namespace Semaphores
