@@ -27,7 +27,8 @@ namespace Types
     {
         TIMER,
         ADJUST,
-        FINISHED
+        FINISHED,
+        PAUSED
     };
 
     typedef struct

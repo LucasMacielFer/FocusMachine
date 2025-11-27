@@ -9,13 +9,22 @@ namespace Tasks
 {
     void vTasksInitialize()
     {
-        xTaskCreatePinnedToCore(vPomodoroFSMTask, "PomodoroFSM", 4096, NULL, 4, NULL, 0);
-        xTaskCreatePinnedToCore(vBrainTask, "BrainTask", 8192, NULL, 3, NULL, 0);
-        xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 16384, NULL, 2, NULL, 0);
-        xTaskCreatePinnedToCore(vCameraInferenceTask, "CameraInferenceTask", 8192, NULL, 1, NULL, 1);
-        xTaskCreatePinnedToCore(vDHTSensorTask, "DHTSensorTask", 4096, NULL, 1, NULL, 0);
-        //xTaskCreatePinnedToCore(vPIRSensorTask, "PIRSensorTask", 4096, NULL, 1, NULL, 0);
-        //xTaskCreatePinnedToCore(vLDRSensorTask, "LDRSensorTask", 4096, NULL, 1, NULL, 0);
+        TaskHandle_t handlePomodoroFSMTask;
+        TaskHandle_t handleDisplayTask;
+        TaskHandle_t handleCameraInferenceTask;
+        TaskHandle_t handleDHTSensorTask;
+        TaskHandle_t handlePIRSensorTask;
+        TaskHandle_t handleLDRSensorTask;
+
+        xTaskCreatePinnedToCore(vPomodoroFSMTask, "PomodoroFSMTask", 8192, NULL, 2, &handlePomodoroFSMTask, 0);
+        xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 8192, NULL, 2, &handleDisplayTask, 0);
+        xTaskCreatePinnedToCore(vCameraInferenceTask, "CameraInferenceTask", 8192, NULL, 1, &handleCameraInferenceTask, 1);
+        xTaskCreatePinnedToCore(vDHTSensorTask, "DHTSensorTask", 4096, NULL, 1, &handleDHTSensorTask, 0);
+        xTaskCreatePinnedToCore(vPIRSensorTask, "PIRSensorTask", 4096, NULL, 1, &handlePIRSensorTask, 0);
+        xTaskCreatePinnedToCore(vLDRSensorTask, "LDRSensorTask", 4096, NULL, 1, &handleLDRSensorTask, 0);
+
+        TaskHandle_t* handlers[6] = {&handlePomodoroFSMTask, &handleDisplayTask, &handleCameraInferenceTask, &handleDHTSensorTask, &handlePIRSensorTask, &handleLDRSensorTask};
+        xTaskCreatePinnedToCore(vBrainTask, "BrainTask", 16384, (void*) handlers, 3, NULL, 0);
 
         esp_register_freertos_idle_hook(Tasks::vSysMonitorIdleHook);
     }
@@ -76,15 +85,50 @@ namespace Tasks
     
     void vBrainTask(void* parameter)
     {
-        // Variables to hold sensor data and system metrics
+        TaskHandle_t handlePomodoroFSMTask;
+        TaskHandle_t handleDisplayTask;
+        TaskHandle_t handleCameraInferenceTask;
+        TaskHandle_t handleDHTSensorTask;
+        TaskHandle_t handlePIRSensorTask;
+        TaskHandle_t handleLDRSensorTask;
+
+        TaskHandle_t** handlers = (TaskHandle_t**) parameter;
+        handlePomodoroFSMTask = *(handlers[0]);
+        handleDisplayTask = *(handlers[1]);
+        handleCameraInferenceTask = *(handlers[2]);
+        handleDHTSensorTask = *(handlers[3]);
+        handlePIRSensorTask = *(handlers[4]);
+        handleLDRSensorTask = *(handlers[5]);
+        
         Types::DHTSensorData dhtData;
         Types::SystemMetrics sysMetrics;
+        Types::SystemState currentSystemState;
+
+        Algorithms::ComfortConfig comfortConfig = {
+            .idealTemp = 23.0f, .tempTol = 7.0f,
+            .idealHum = 50.0f,  .humTol = 25.0f,
+            .luxIdealMin = 1800, .luxIdealMax = 3200, .luxTol = 1000,
+            .pirMaxEvents = 4
+        };
+
         float cpuUsage;
         int PIRdetections;
         int luminosity;
         bool faceDetected;
 
+        int motionEvents = 0;
+        int cameraEvents = 0;
+        int cameraDetections = 0;
+        float luminosityPercentage = 0.0f;
+
+        bool detectionDebounce = false;
+        int debounceCounter = 0;
+
         float comfortIndex;
+        float focusIndex;
+
+        bool recalculateComfortIndex = false;
+        bool recalculateFocusIndex = false;
 
         QueueHandle_t dhtSensorQueue = Queues::dhtSensorQueue;
         QueueHandle_t sysMonitorQueue = Queues::sysMonitorQueue;
@@ -92,15 +136,17 @@ namespace Tasks
         QueueHandle_t ldrSensorQueue = Queues::ldrSensorQueue;
         QueueHandle_t displayQueue = Queues::displayQueue;
         QueueHandle_t cameraInferenceQueue = Queues::cameraInferenceQueue;
+        QueueHandle_t SystemStateQueue = Queues::SystemStateQueue;
 
         // Queue set
-        QueueSetHandle_t brainQueueSet = xQueueCreateSet(5); 
+        QueueSetHandle_t brainQueueSet = xQueueCreateSet(6); 
 
         xQueueAddToSet(dhtSensorQueue, brainQueueSet);
         xQueueAddToSet(sysMonitorQueue, brainQueueSet);
         xQueueAddToSet(pirSensorQueue, brainQueueSet);
         xQueueAddToSet(ldrSensorQueue, brainQueueSet);
         xQueueAddToSet(cameraInferenceQueue, brainQueueSet);
+        xQueueAddToSet(SystemStateQueue, brainQueueSet);
 
         QueueSetMemberHandle_t xActivatedMember;
 
@@ -115,17 +161,17 @@ namespace Tasks
                 {0, 0}
             }
         );
-
         xQueueSendToBack(displayQueue, &displayDataRequest, 0);
+
         for(;;)
         {
             xActivatedMember = xQueueSelectFromSet(brainQueueSet, portMAX_DELAY);
-            if (xActivatedMember == dhtSensorQueue) 
+            if(xActivatedMember == dhtSensorQueue) 
             {
                 Types::DisplayData displayDataTemp;
                 Types::DisplayData displayDataHum;
 
-                if (xQueueReceive(dhtSensorQueue, &dhtData, 0) == pdTRUE)
+                if(xQueueReceive(dhtSensorQueue, &dhtData, 0) == pdTRUE)
                 {
                     displayDataTemp.type = Types::DataType::TEMPERATURE;
                     displayDataTemp.value = static_cast<void*>(&dhtData.temperature);
@@ -140,14 +186,116 @@ namespace Tasks
 
                     xQueueSendToBack(displayQueue, &displayDataTemp, 0);
                     xQueueSendToBack(displayQueue, &displayDataHum, 0);
+                    recalculateComfortIndex = true;
+                }
+            }
+
+            if(xActivatedMember == pirSensorQueue) 
+            {
+                if(xQueueReceive(pirSensorQueue, &PIRdetections, 0) == pdTRUE)
+                {
+                    motionEvents += PIRdetections;
+                    Serial.print("PIR Detections: ");
+                    Serial.println(PIRdetections);
+                    recalculateComfortIndex = true;
+                }
+            }
+
+            if(xActivatedMember == ldrSensorQueue) 
+            {
+                if(xQueueReceive(ldrSensorQueue, &luminosity, 0) == pdTRUE)
+                {
+                    Types::DisplayData displayDataLdr;
+                    displayDataLdr.type = Types::DataType::LUMINOSITY;
+
+                    luminosityPercentage = (static_cast<float>(luminosity) / 4095.0f) * 100.0f;
+
+                    Serial.print("Luminosity: ");
+                    Serial.println(luminosity);
+                    recalculateComfortIndex = true;
+                }
+            }
+
+            if(xActivatedMember == cameraInferenceQueue) 
+            {
+                if(xQueueReceive(cameraInferenceQueue, &faceDetected, 0) == pdTRUE)
+                {
+                    Serial.println("Camera Inference Data Received");
+
+                    if(faceDetected) 
+                        detectionDebounce = true;
+
+                    debounceCounter++;
+
+                    if(debounceCounter >= CAMERA_DEBOUNCE_THRESHOLD) 
+                    {
+                        if(detectionDebounce) 
+                        {
+                            cameraDetections++;
+                            Serial.println("Face detection counted!");
+                            recalculateFocusIndex = true;
+                        }
+                        detectionDebounce = false;
+                        debounceCounter = 0;
+                        cameraEvents++;
+                    }
+                }
+            }
+
+            if(xActivatedMember == SystemStateQueue) 
+            {
+                if(xQueueReceive(SystemStateQueue, &currentSystemState, 0) == pdTRUE)
+                {
+                    switch(currentSystemState)
+                    {
+                        case Types::SystemState::TIMER:
+                            Serial.println("System State changed to TIMER");
+                            ISR::attachPIRISR();
+                            vTaskResume(handleCameraInferenceTask);
+                            vTaskResume(handleDHTSensorTask);
+                            vTaskResume(handlePIRSensorTask);
+                            vTaskResume(handleLDRSensorTask);
+                            break;
+                        case Types::SystemState::ADJUST:
+                            Serial.println("System State changed to ADJUST");
+                            vTaskResume(handleCameraInferenceTask);
+                            vTaskSuspend(handleDHTSensorTask);
+                            vTaskSuspend(handlePIRSensorTask);
+                            vTaskSuspend(handleLDRSensorTask);
+                            ISR::detachPIRISR();
+                            break;
+                        case Types::SystemState::FINISHED:
+                            Serial.println("System State changed to FINISHED");
+                            vTaskSuspend(handleCameraInferenceTask);
+                            vTaskSuspend(handleDHTSensorTask);
+                            vTaskSuspend(handlePIRSensorTask);
+                            vTaskSuspend(handleLDRSensorTask);
+                            ISR::detachPIRISR();
+                            focusIndex = 0.0f;
+                            motionEvents = 0;
+                            cameraEvents = 0;
+                            cameraDetections = 0;
+                            break;
+                        case Types::SystemState::PAUSED:
+                            Serial.println("System State changed to PAUSED");
+                            vTaskSuspend(handleCameraInferenceTask);
+                            vTaskSuspend(handleDHTSensorTask);
+                            vTaskSuspend(handlePIRSensorTask);
+                            vTaskSuspend(handleLDRSensorTask);
+                            ISR::detachPIRISR();
+                            break;
+                        default:
+                            break;
+                    }
                 }
             }
 
             // Read system metrics
-            if (xActivatedMember == sysMonitorQueue) 
+            if(xActivatedMember == sysMonitorQueue) 
             {
-                if (xQueueReceive(sysMonitorQueue, &sysMetrics, 0) == pdTRUE)
-                    if (sysMetrics.totalTicks > 0)
+                if(xQueueReceive(sysMonitorQueue, &sysMetrics, 0) == pdTRUE)
+                {
+                    if(sysMetrics.totalTicks > 0)
                     {
                         cpuUsage = 100.0f * (1.0f - ((float)sysMetrics.idleTicks / (float)sysMetrics.totalTicks));
                         
@@ -163,33 +311,27 @@ namespace Tasks
                     {
                         Serial.println("Error: TotalTicks is 0");
                     }
-            }
-
-            if (xActivatedMember == pirSensorQueue) 
-            {
-                if (xQueueReceive(pirSensorQueue, &PIRdetections, 0) == pdTRUE)
-                {
-                    Serial.print("PIR Detections: ");
-                    Serial.println(PIRdetections);
                 }
             }
 
-            if (xActivatedMember == ldrSensorQueue) 
+            if(recalculateComfortIndex)
             {
-                if (xQueueReceive(ldrSensorQueue, &luminosity, 0) == pdTRUE)
-                {
-                    Serial.print("Luminosity: ");
-                    Serial.println(luminosity);
-                }
+                comfortIndex = Algorithms::calculateComfortIndex(dhtData.temperature, dhtData.humidity, luminosity, motionEvents, comfortConfig);
+                Types::DisplayData displayDataComfort;
+                displayDataComfort.type = Types::DataType::COMFORT_INDEX;
+                displayDataComfort.value = static_cast<void*>(&comfortIndex);
+                xQueueSendToBack(displayQueue, &displayDataComfort, 0);
+                recalculateComfortIndex = false;
             }
 
-            if (xActivatedMember == cameraInferenceQueue) 
+            if(recalculateFocusIndex)
             {
-                //TODO : Process camera inference data
-                if (xQueueReceive(cameraInferenceQueue, &faceDetected, 0) == pdTRUE)
-                {
-                    Serial.println("Camera Inference Data Received");
-                }
+                focusIndex = Algorithms::calculateFocusIndex(cameraEvents, cameraDetections);
+                Types::DisplayData displayDataFocus;
+                displayDataFocus.type = Types::DataType::FOCUS_INDEX;
+                displayDataFocus.value = static_cast<void*>(&focusIndex);
+                xQueueSendToBack(displayQueue, &displayDataFocus, 0);
+                recalculateFocusIndex = false;
             }
         }
     }
@@ -209,10 +351,9 @@ namespace Tasks
         
         for(;;)
         {
-            if (xQueueReceive(myQueue, &displayData, portMAX_DELAY) == pdTRUE)
+            if(xQueueReceive(myQueue, &displayData, portMAX_DELAY) == pdTRUE)
             {
-                //TODO - remove
-                switch (displayData.type)
+                switch(displayData.type)
                 {
                     case Types::DataType::TEMPERATURE:
                     {
@@ -293,7 +434,9 @@ namespace Tasks
         bool detected = false;
         float taxa = 0.0;
 
-        while (1)
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+
+        for(;;)
         {
             fb = esp_camera_fb_get();
             detected = faceDetect(fb, &acc);
@@ -306,15 +449,16 @@ namespace Tasks
                 Serial.println("No face detected...");
             }
 
+            xQueueOverwrite(Queues::cameraInferenceQueue, &detected);
+            Serial.println("Camera inference data sent!");
+
             esp_camera_fb_return(fb);
-            vTaskDelay(pdMS_TO_TICKS(CAMERA_TASK_DELAY_MS));
+            vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(CAMERA_TASK_DELAY_MS));
         }
     }
 
     void vDHTSensorTask(void* parameter)
     {
-        Types::DisplayData displayData;
-
         Types::DHTSensorData dhtData;
         dhtData.temperature = 0.0f;
         dhtData.humidity = 0.0f;
@@ -328,13 +472,14 @@ namespace Tasks
         // A little delay for the sensor to stabilize
         vTaskDelay(pdMS_TO_TICKS(2000));
 
-        for (;;) 
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+        for(;;) 
         {
             float h = dhtSensor.readHumidity();
             float t = dhtSensor.readTemperature();
 
             // 4. Verificação de erros (isnan = is not a number)
-            if (isnan(h) || isnan(t)) 
+            if(isnan(h) || isnan(t)) 
             {
                 Serial.println("Failed to read from DHT!");
             } 
@@ -343,30 +488,55 @@ namespace Tasks
                 dhtData.humidity = h;
                 dhtData.temperature = t;
 
-                displayData.value = static_cast<void*>(&dhtData);
-
                 xQueueOverwrite(dhtSensorQueue, &dhtData);
+                Serial.println("DHT data sent!");
             }
 
-            vTaskDelay(pdMS_TO_TICKS(DHT_TASK_DELAY_MS));
+            vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DHT_TASK_DELAY_MS));
         }
     }
 
     void vPIRSensorTask(void* parameter)
     {
-        //TODO: Implement PIR Sensor Task
-        return;
+        int pirValue = 0;
+        int result = 0;
+        QueueHandle_t pirSensorQueue = Queues::pirSensorQueue;
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+
+        for(;;)
+        {
+            while(xSemaphoreTake(Semaphores::pirEventSemaphore, 0) == pdTRUE)
+            {
+                pirValue++;
+                Serial.println("PIR Motion Detected!");
+            }
+
+            result = pirValue;
+            xQueueOverwrite(pirSensorQueue, &result);
+            Serial.println("PIR value sent!");
+            pirValue = 0;
+
+            vTaskDelayUntil(&xLastWakeTime,pdMS_TO_TICKS(PIR_TASK_DELAY_MS));
+        }
     }
 
     void vLDRSensorTask(void* parameter)
     {
-        //TODO: Implement LDR Sensor Task
-        return;
+        int ldrValue = 0;
+        QueueHandle_t ldrSensorQueue = Queues::ldrSensorQueue;
+        TickType_t xLastWakeTime = xTaskGetTickCount();
+        for(;;)
+        {
+            ldrValue = analogRead(PIN_IN_ANLG);
+            xQueueOverwrite(ldrSensorQueue, &ldrValue);
+            Serial.println("LDR value sent!");
+            vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(LDR_TASK_DELAY_MS));
+        }
     }
 
     void vBuzzerTask(void* parameter)
     {
-        for (int i = 0; i < 5; i++) 
+        for(int i = 0; i < 5; i++) 
         {
             ledcWrite(0, 250); // 50% duty cycle
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -383,14 +553,14 @@ namespace Tasks
         static uint32_t localIdleCounter = 0;
         static TickType_t measurementStartTick = 0; 
         
-        if (measurementStartTick == 0) 
+        if(measurementStartTick == 0) 
         {
             measurementStartTick = xTaskGetTickCount();
         }
 
         TickType_t currentTick = xTaskGetTickCount();
 
-        if (currentTick != lastTick) 
+        if(currentTick != lastTick) 
         {
             localIdleCounter++;
             lastTick = currentTick;
@@ -398,7 +568,7 @@ namespace Tasks
 
         TickType_t totalTimePassed = currentTick - measurementStartTick;
 
-        if (totalTimePassed >= 1000) 
+        if(totalTimePassed >= 1000) 
         {
             
             Types::SystemMetrics msg;

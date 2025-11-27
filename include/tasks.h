@@ -4,16 +4,19 @@
 #include "esp_task_wdt.h"
 #include "esp_freertos_hooks.h"
 
+#include "algorithms.h"
 #include "semaphores.h"
 #include "queues.h"
 #include "types.h"
 #include "pins.h"
 #include "classification.h"
 #include "display.h"
+#include "ISR.h"
 
 // Sensor lib
 #include <DHT.h>
 
+#define CAMERA_DEBOUNCE_THRESHOLD 3
 #define DHT_TASK_DELAY_MS 2000
 #define PIR_TASK_DELAY_MS 500
 #define LDR_TASK_DELAY_MS 500

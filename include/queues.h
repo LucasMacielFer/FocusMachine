@@ -14,6 +14,7 @@ namespace Queues
     extern QueueHandle_t ldrSensorQueue;
     extern QueueHandle_t cameraInferenceQueue;
     extern QueueHandle_t interactionEventQueue;
+    extern QueueHandle_t SystemStateQueue;
 
     void vCreateQueues(void);
 } // namespace Queues
