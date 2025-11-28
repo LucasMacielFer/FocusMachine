@@ -5,8 +5,9 @@
 
 namespace Semaphores
 {
-    extern SemaphoreHandle_t sysMonitorSemaphore;
+    extern SemaphoreHandle_t displayPomodoroHandshakeSemaphore;
     extern SemaphoreHandle_t pirEventSemaphore;
+    extern SemaphoreHandle_t buttonSemaphore;
 
     void vCreateSemaphores(void);
 } // namespace Semaphores

@@ -9,10 +9,16 @@ namespace Types
         TEMPERATURE,
         HUMIDITY,
         LUMINOSITY,
-        TIME,
+        TIME_0,         // Stopwatch digits
+        TIME_1,
+        TIME_2,
+        TIME_3,
         FOCUS_INDEX,
         COMFORT_INDEX,
-        ADJ_TIME,
+        ADJ_TIME_0,
+        ADJ_TIME_1,
+        ADJ_TIME_2,
+        ADJ_TIME_3,     // Stopwatch digits to adjust
         SCREEN_CHANGE_REQUEST
     };
 
@@ -54,6 +60,13 @@ namespace Types
         uint16_t idleTicks;
         uint16_t totalTicks;
     } SystemMetrics;
+
+    typedef struct
+    {
+        SystemState sysState;
+        PomodoroState pomodoroState;
+    } StateChangeRequest;
+    
 
     typedef struct
     {

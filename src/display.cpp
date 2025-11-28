@@ -72,6 +72,10 @@ namespace Display
         tft->print("--.-%");
         tft->drawRect(13, 121, 294, 73, 0xFFFF);
         tft->drawRect(13, 204, 294, 24, 0xFFFF);
+        tft->setTextSize(1);
+        tft->setFont(&FreeSansBold24pt7b);
+        tft->setCursor(154, 99);
+        tft->print(":");
     }
 
     void vPrintTemperature(Adafruit_ILI9341 *tft, float temperature)
@@ -115,7 +119,7 @@ namespace Display
         char buffer[20];
         snprintf(buffer, sizeof(buffer), "%.1f%%", focusIndex);
 
-        tft->fillRect(239, 206, 60, 18, 0x0000);
+        tft->fillRect(239, 206, 65, 18, 0x0000);
 
         tft->setFont(&FreeSansBold9pt7b);
         tft->setCursor(239, 221);
@@ -148,17 +152,27 @@ namespace Display
         tft->print(buffer);
     }
 
-    void vPrintTime(Adafruit_ILI9341 *tft, int minutes, int seconds)
+    void vPrintTime(Adafruit_ILI9341 *tft, Types::DataType pos, int value)
     {
         char buffer[20];
-        snprintf(buffer, sizeof(buffer), "%02d:%02d", minutes, seconds);
+        int posX = 0;
+        snprintf(buffer, sizeof(buffer), "%d", value);
 
-        tft->fillRect(102, 71, 116, 36, 0x0000);
+        switch (pos)
+        {
+        case Types::DataType::TIME_3: posX = 102; break;
+        case Types::DataType::TIME_2: posX = 128; break;
+        case Types::DataType::TIME_1: posX = 166; break;
+        case Types::DataType::TIME_0: posX = 192; break;
+        default: break;
+        }
 
-        tft->setTextColor(0xFFFF);
-        tft->setTextWrap(false);
+        tft->fillRect(posX, 71, 27, 35, 0x0000);
+
         tft->setFont(&FreeSansBold24pt7b);
-        tft->setCursor(102, 104);
+        tft->setTextColor(0xFFFF);
+        tft->setTextSize(1);
+        tft->setCursor(posX, 104);
         tft->print(buffer);
     }
 
@@ -276,7 +290,7 @@ namespace Display
     }
 
 
-    void vPrintTimerAdjustment(Adafruit_ILI9341 *tft, int pos, int value)
+    void vPrintTimerAdjustment(Adafruit_ILI9341 *tft, Types::DataType pos, int value)
     {
         char buffer[20];
         int posX = 0;
@@ -284,10 +298,10 @@ namespace Display
 
         switch (pos)
         {
-        case 0: posX = 44; break;
-        case 1: posX = 96; break;
-        case 2: posX = 172; break;
-        case 3: posX = 224; break;
+        case Types::DataType::ADJ_TIME_3: posX = 44; break;
+        case Types::DataType::ADJ_TIME_2: posX = 96; break;
+        case Types::DataType::ADJ_TIME_1: posX = 172; break;
+        case Types::DataType::ADJ_TIME_0: posX = 224; break;
         default: break;
         }
 

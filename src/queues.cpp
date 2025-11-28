@@ -14,12 +14,12 @@ namespace Queues
     void vCreateQueues(void)
     {
         sysMonitorQueue = xQueueCreate(1, sizeof(Types::SystemMetrics));
-        displayQueue = xQueueCreate(5, sizeof(Types::DisplayData));
+        displayQueue = xQueueCreate(10, sizeof(Types::DisplayData));
         dhtSensorQueue = xQueueCreate(1, sizeof(Types::DHTSensorData));
         pirSensorQueue = xQueueCreate(1, sizeof(int));
         ldrSensorQueue = xQueueCreate(1, sizeof(int));
         cameraInferenceQueue = xQueueCreate(1, sizeof(bool));
         interactionEventQueue = xQueueCreate(3, sizeof(short));
-        SystemStateQueue = xQueueCreate(1, sizeof(Types::SystemState));
+        SystemStateQueue = xQueueCreate(1, sizeof(Types::StateChangeRequest));
     }
 } // namespace Queues

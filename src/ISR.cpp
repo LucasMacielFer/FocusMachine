@@ -35,6 +35,7 @@ namespace ISR
         int source =  FROM_BUTTON;
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
         xQueueSendToBackFromISR(Queues::interactionEventQueue, &source, &xHigherPriorityTaskWoken);
+        xSemaphoreGiveFromISR(Semaphores::buttonSemaphore, &xHigherPriorityTaskWoken);
         if (xHigherPriorityTaskWoken == pdTRUE)
         {
             portYIELD_FROM_ISR();
