@@ -9,7 +9,7 @@ namespace Queues
     QueueHandle_t ldrSensorQueue = nullptr;
     QueueHandle_t cameraInferenceQueue = nullptr;
     QueueHandle_t interactionEventQueue = nullptr;
-    QueueHandle_t SystemStateQueue = nullptr;
+    QueueHandle_t systemStateQueue = nullptr;
 
     void vCreateQueues(void)
     {
@@ -19,7 +19,7 @@ namespace Queues
         pirSensorQueue = xQueueCreate(1, sizeof(int));
         ldrSensorQueue = xQueueCreate(1, sizeof(int));
         cameraInferenceQueue = xQueueCreate(1, sizeof(bool));
-        interactionEventQueue = xQueueCreate(3, sizeof(short));
-        SystemStateQueue = xQueueCreate(1, sizeof(Types::StateChangeRequest));
+        interactionEventQueue = xQueueCreate(3, sizeof(int));
+        systemStateQueue = xQueueCreate(1, sizeof(Types::StateChangeRequest));
     }
 } // namespace Queues

@@ -13,6 +13,7 @@ void setup()
     Pins::initializePins();
     Semaphores::vCreateSemaphores();
     Queues::vCreateQueues();
+    SystemSync::initializeSystemSync();
     Tasks::vTasksInitialize();
     ISR::setupISRs();
 

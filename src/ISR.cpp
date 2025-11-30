@@ -6,8 +6,8 @@ namespace ISR
     {
         attachInterrupt(digitalPinToInterrupt(PIN_IN_PIR), pirISR, RISING);
         attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), buttonPressISR, FALLING);
-        touchAttachInterruptArg(PIN_TOUCH1, touchISR, (void*) FROM_TOUCH1, 1700);
-        touchAttachInterruptArg(PIN_TOUCH2, touchISR, (void*) FROM_TOUCH2, 1700);
+        touchAttachInterruptArg(PIN_TOUCH1, touchISR, (void*) FROM_TOUCH1, TOUCH_THRESHOLD_1);
+        touchAttachInterruptArg(PIN_TOUCH2, touchISR, (void*) FROM_TOUCH2, TOUCH_THRESHOLD_2);
     }
 
     void attachPIRISR()
@@ -32,10 +32,9 @@ namespace ISR
 
     void IRAM_ATTR buttonPressISR()
     {
-        int source =  FROM_BUTTON;
+        int source = FROM_BUTTON;
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
         xQueueSendToBackFromISR(Queues::interactionEventQueue, &source, &xHigherPriorityTaskWoken);
-        xSemaphoreGiveFromISR(Semaphores::buttonSemaphore, &xHigherPriorityTaskWoken);
         if (xHigherPriorityTaskWoken == pdTRUE)
         {
             portYIELD_FROM_ISR();
@@ -45,11 +44,14 @@ namespace ISR
     void IRAM_ATTR touchISR(void* arg)
     {
         int source = (int) arg;
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        xQueueSendToBackFromISR(Queues::interactionEventQueue, &source, &xHigherPriorityTaskWoken);
-        if (xHigherPriorityTaskWoken == pdTRUE)
+        if(!touchInterruptGetLastStatus((int32_t) arg))
         {
-            portYIELD_FROM_ISR();
+            BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+            xQueueSendToBackFromISR(Queues::interactionEventQueue, &source, &xHigherPriorityTaskWoken);
+            if (xHigherPriorityTaskWoken == pdTRUE)
+            {
+                portYIELD_FROM_ISR();
+            }
         }
     }
 } // namespace ISR

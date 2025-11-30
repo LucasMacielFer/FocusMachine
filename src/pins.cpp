@@ -12,6 +12,6 @@ namespace Pins
         pinMode(PIN_IN_DIG, INPUT);
         pinMode(PIN_IN_PIR, INPUT);
         pinMode(PIN_IN_ANLG, INPUT);
-        pinMode(BUTTON_PIN, INPUT);
+        pinMode(BUTTON_PIN, INPUT_PULLUP);
     }
 } // namespace Pins

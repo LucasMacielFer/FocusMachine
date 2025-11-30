@@ -25,9 +25,9 @@ namespace Display
     void vPrintFocusIndex(Adafruit_ILI9341 *tft, float focusIndex);
     void vPrintFocusIndexUponFocusEnd(Adafruit_ILI9341 *tft, float focusIndex);
     void vPrintComfortIndex(Adafruit_ILI9341 *tft, float comfortIndex);
-    void vPrintTime(Adafruit_ILI9341 *tft, Types::DataType pos, int value);
+    void vPrintTime(Adafruit_ILI9341 *tft, int pos, int value);
     void vPrintStateFinished(Adafruit_ILI9341 *tft, Types::PomodoroState state);
     void vPrintFaceDetectedOnAdjustment(Adafruit_ILI9341 *tft, bool detected);
     void vPrintAdjustingTimer(Adafruit_ILI9341 *tft, Types::PomodoroState state, int minutes, int seconds);
-    void vPrintTimerAdjustment(Adafruit_ILI9341 *tft, Types::DataType pos, int value);
+    void vPrintTimerAdjustment(Adafruit_ILI9341 *tft, int pos, int value, bool highlight);
 } // namespace Display

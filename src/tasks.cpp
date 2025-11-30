@@ -16,9 +16,9 @@ namespace Tasks
         TaskHandle_t handlePIRSensorTask;
         TaskHandle_t handleLDRSensorTask;
 
-        xTaskCreatePinnedToCore(vPomodoroFSMTask, "PomodoroFSMTask", 8192, NULL, 2, &handlePomodoroFSMTask, 0);
+        xTaskCreatePinnedToCore(vPomodoroFSMTask, "PomodoroFSMTask", 8192, NULL, 4, &handlePomodoroFSMTask, 0);
         xTaskCreatePinnedToCore(vDisplayTask, "DisplayTask", 8192, NULL, 2, &handleDisplayTask, 0);
-        xTaskCreatePinnedToCore(vCameraInferenceTask, "CameraInferenceTask", 8192, NULL, 1, &handleCameraInferenceTask, 1);
+        xTaskCreatePinnedToCore(vCameraInferenceTask, "CameraInferenceTask", 16384, NULL, 1, &handleCameraInferenceTask, 1);
         xTaskCreatePinnedToCore(vDHTSensorTask, "DHTSensorTask", 4096, NULL, 1, &handleDHTSensorTask, 0);
         xTaskCreatePinnedToCore(vPIRSensorTask, "PIRSensorTask", 4096, NULL, 1, &handlePIRSensorTask, 0);
         xTaskCreatePinnedToCore(vLDRSensorTask, "LDRSensorTask", 4096, NULL, 1, &handleLDRSensorTask, 0);
@@ -31,167 +31,349 @@ namespace Tasks
 
     void vPomodoroFSMTask(void* parameter)
     {
-        // 30 seconds just for testing purposes
-        //TODO: Write this all properly
+        // Default durations
+        //TODO: Invert durations - Those are for testing
+        int timerDurationFocus[2] = {0, 25};       // 25 minutes
+        int timerDurationShortBreak[2] = {0, 10};   // 5 minutes
+        int timerDurationLongBreak[2] = {0, 15};   // 15 minutes
+
+        int shortBreakCounter = 0;
+        Types::StopWatchTime currentTime = { -1, -1 };
+
         int minutes = 0;
         int seconds = 30;
-        int prevMinutes = minutes;
-        int prevSeconds = seconds;
-        int digit0 = seconds % 10;
-        int digit1 = seconds / 10;
-        int digit2 = minutes % 10;
-        int digit3 = minutes / 10;
-        bool changeVector[4] = {true, true, true, true}; // To track which digits need updating
         bool startTick = true;
 
-        Types::PomodoroState currentState = Types::PomodoroState::FOCUS;
-        Types::SystemState currentSysState = Types::SystemState::TIMER;
+        int adjustDigitsIndex = 3;
+        int adjustBuffer[4] = {0, 0, 0, 0};
+        bool highlightAdjust[4] = {false, false, false, false};
+
+        const TickType_t xDelay = pdMS_TO_TICKS(1000);
+        TickType_t xNextWakeTime = xTaskGetTickCount() + xDelay;
+
+        int receivedEvent = -1;
+        uint32_t lastTouch1ProcessedTime = 0;
+        uint32_t lastTouch2ProcessedTime = 0;
+
+        Types::PomodoroState currentPomodoroState = Types::PomodoroState::FOCUS;
+        Types::PomodoroState nextPomodoroState = currentPomodoroState;
+        Types::SystemState currentSysState = Types::SystemState::ADJUST;
+        Types::SystemState nextSysState = currentSysState;
 
         Types::DisplayData bundle;
-        Types::DisplayData bundle_0;
-        Types::DisplayData bundle_1;
-        Types::DisplayData bundle_2;
-        Types::DisplayData bundle_3;
+        Types::DisplayData timeBundle;
 
-        bundle_0.type = Types::DataType::TIME_0;
-        bundle_1.type = Types::DataType::TIME_1;
-        bundle_2.type = Types::DataType::TIME_2;
-        bundle_3.type = Types::DataType::TIME_3;
+        timeBundle.type = Types::DataType::UPDATE_TIME;
 
-        xSemaphoreTake(Semaphores::displayPomodoroHandshakeSemaphore, 0);
+        xSemaphoreTake(Semaphores::displayPomodoroHandshakeSemaphore, portMAX_DELAY);
+        Types::StateChangeRequest initialState {
+            currentSysState,
+            currentPomodoroState
+        };
+        xQueueSendToBack(Queues::systemStateQueue, &initialState, portMAX_DELAY);
         TickType_t xLastWakeTime = xTaskGetTickCount();
 
         for(;;)
         {
+            nextSysState = currentSysState;
+            nextPomodoroState = currentPomodoroState;
+
             if(currentSysState == Types::SystemState::TIMER)
             {
                 if(startTick)
                 {
                     Serial.println("\n\n\nStarting timer tick...\n\n\n");
                     bundle.type = Types::DataType::SCREEN_CHANGE_REQUEST;
-                    bundle.value = static_cast<void*>(
-                        new Types::ScreenChangeRequest{
-                            currentState,
+                    Types::ScreenChangeRequest request {
+                            currentPomodoroState,
                             currentSysState,
-                            {minutes, seconds}
-                        }
-                    );
+                            {minutes, seconds}};
+
+                    bundle.value = static_cast<void*>(&request);
                     xQueueSendToBack(Queues::displayQueue, &bundle, portMAX_DELAY);
-                    bundle_0.value = static_cast<void*>(&digit0);
-                    xQueueSendToBack(Queues::displayQueue, &bundle_0, 0);
-                    bundle_1.value = static_cast<void*>(&digit1);
-                    xQueueSendToBack(Queues::displayQueue, &bundle_1, 0);
-                    bundle_2.value = static_cast<void*>(&digit2);
-                    xQueueSendToBack(Queues::displayQueue, &bundle_2, 0);
-                    bundle_3.value = static_cast<void*>(&digit3);
-                    xQueueSendToBack(Queues::displayQueue, &bundle_3, 0);
+                    currentTime.seconds = seconds;
+                    currentTime.minutes = minutes;
+                    timeBundle.type = Types::DataType::UPDATE_TIME;
+                    timeBundle.value = static_cast<void*>(&currentTime);
+                    xQueueSendToBack(Queues::displayQueue, &timeBundle, 0);
                     xSemaphoreTake(Semaphores::displayPomodoroHandshakeSemaphore, portMAX_DELAY);
                     startTick = false;
                 }
 
-                if(seconds > 0) 
+                TickType_t xNow = xTaskGetTickCount();
+                TickType_t xTicksToWait = 0;
+                if (xNextWakeTime > xNow) 
+                    xTicksToWait = xNextWakeTime - xNow;
+                
+                if (xQueueReceive(Queues::interactionEventQueue, &receivedEvent, xTicksToWait) == pdTRUE)
                 {
-                    seconds--;
-                    changeVector[0] = true;
-                    changeVector[1] = prevSeconds/10 != seconds/10;
-                    changeVector[2] = false;
-                    changeVector[3] = false;
+                    if (receivedEvent == FROM_BUTTON) 
+                    {
+                        Serial.println("\n\n\n\nTimer paused by user.\n\n\n\n");
+                        nextSysState = Types::SystemState::PAUSED;
+                    }
                 }
+
                 else
                 {
-                    if(minutes > 1)
+                    
+                    if (seconds > 0) 
                     {
-                        minutes--;
-                        seconds = 59;
-                        changeVector[0] = true;
-                        changeVector[1] = true;
-                        changeVector[2] = true;
-                        changeVector[3] = prevMinutes/10 != minutes/10;
-                    }
-                    else
+                        seconds--;
+                    } 
+                    else 
                     {
-                        minutes = 0;
-                        seconds = 0;
-                        changeVector[0] = true;
-                        changeVector[1] = true;
-                        changeVector[2] = true;
-                        changeVector[3] = true;
+                        if (minutes > 0) 
+                        {
+                            minutes--;
+                            seconds = 59;
+                        } 
+                        else 
+                        {
+                            nextSysState = Types::SystemState::FINISHED;
+                        }
                     }
-                }
 
-                prevMinutes = minutes;
-                prevSeconds = seconds;
+                    currentTime.minutes = minutes;
+                    currentTime.seconds = seconds;
+                    timeBundle.type = Types::DataType::UPDATE_TIME;
+                    timeBundle.value = static_cast<void*>(&currentTime);
+                    xQueueSendToBack(Queues::displayQueue, &timeBundle, 0);
 
-                if(changeVector[0])
-                {
-                    digit0 = seconds % 10;
-                    bundle_0.value = static_cast<void*>(&digit0);
-                    xQueueSendToBack(Queues::displayQueue, &bundle_0, 0);
-                }
-                if(changeVector[1])
-                {
-                    digit1 = seconds / 10;
-                    bundle_1.value = static_cast<void*>(&digit1);
-                    xQueueSendToBack(Queues::displayQueue, &bundle_1, 0);
-                }
-                if(changeVector[2])
-                {
-                    digit2 = minutes % 10;
-                    bundle_2.value = static_cast<void*>(&digit2);
-                    xQueueSendToBack(Queues::displayQueue, &bundle_2, 0);
-                }
-                if(changeVector[3])
-                {
-                    digit3 = minutes / 10;
-                    bundle_3.value = static_cast<void*>(&digit3);
-                    xQueueSendToBack(Queues::displayQueue, &bundle_3, 0);
+                    xNextWakeTime += xDelay;
                 }
                 
                 if (minutes <= 0 && seconds <= 0) 
                 {
-                    currentSysState = Types::SystemState::FINISHED;
+                    nextSysState = Types::SystemState::FINISHED;
                 }
-                else
-                    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
             }
 
             else if(currentSysState == Types::SystemState::FINISHED)
             {
                 bundle.type = Types::DataType::SCREEN_CHANGE_REQUEST;
-                    bundle.value = static_cast<void*>(
-                        new Types::ScreenChangeRequest{
-                            currentState,
-                            Types::SystemState::FINISHED,
-                            {0, 0}
-                        }
-                    );
+                Types::ScreenChangeRequest request {
+                        currentPomodoroState,
+                        currentSysState,
+                        {minutes, seconds}};
+                bundle.value = static_cast<void*>(&request);
 
                 xQueueSendToBack(Queues::displayQueue, &bundle, 0);
-                xQueueSendToBack(Queues::SystemStateQueue, &currentSysState, 0);
                 xSemaphoreTake(Semaphores::displayPomodoroHandshakeSemaphore, portMAX_DELAY);
-                //xSemaphoreTake(Semaphores::buttonSemaphore, portMAX_DELAY);
-                vTaskDelay(pdMS_TO_TICKS(5000));
+
+                // Awaits user interaction to start next state
+                xQueueReceive(Queues::interactionEventQueue, &receivedEvent, portMAX_DELAY);
+                Serial.println("User interaction received, starting next state...");
+                Serial.println(receivedEvent);
                 
-                switch(currentState)
+                switch(currentPomodoroState)
                 {
                     case Types::PomodoroState::FOCUS:
-                        currentState = Types::PomodoroState::SHORT_BREAK;
-                        minutes = 0; // For testing purposes
-                        seconds = 10;
+                        if(shortBreakCounter < 3)
+                        {
+                            nextPomodoroState = Types::PomodoroState::SHORT_BREAK;
+                            minutes = timerDurationShortBreak[0]; 
+                            seconds = timerDurationShortBreak[1];
+                            shortBreakCounter++;
+                        }
+                        else
+                        {
+                            nextPomodoroState = Types::PomodoroState::LONG_BREAK;
+                            minutes = timerDurationLongBreak[0]; 
+                            seconds = timerDurationLongBreak[1];
+                            shortBreakCounter = 0;
+                        }
                         break;
                     case Types::PomodoroState::SHORT_BREAK:
-                        currentState = Types::PomodoroState::FOCUS;
-                        minutes = 0; // For testing purposes
-                        seconds = 10;
+                    case Types::PomodoroState::LONG_BREAK:
+                        nextPomodoroState = Types::PomodoroState::FOCUS;
+                        minutes = timerDurationFocus[0]; 
+                        seconds = timerDurationFocus[1];
                         break;
                     default:
                         break;
                 }
 
-                currentSysState = Types::SystemState::TIMER;
+                nextSysState = Types::SystemState::TIMER;
                 Serial.println("\n\n\n\n\nStarting new session...\n\n\n\n");
                 startTick = true;
             }
+
+            else if (currentSysState == Types::SystemState::ADJUST)
+            {
+                if(startTick)
+                {
+                    switch(currentPomodoroState)
+                    {
+                        case Types::PomodoroState::FOCUS:
+                            minutes = timerDurationFocus[0];
+                            seconds = timerDurationFocus[1];
+                            break;
+                        case Types::PomodoroState::SHORT_BREAK:
+                            minutes = timerDurationShortBreak[0];
+                            seconds = timerDurationShortBreak[1];
+                            break;
+                        case Types::PomodoroState::LONG_BREAK:
+                            minutes = timerDurationLongBreak[0];
+                            seconds = timerDurationLongBreak[1];
+                            break;
+                    }
+                    adjustDigitsIndex = 3;
+                    highlightAdjust[0] = false;
+                    highlightAdjust[1] = false;
+                    highlightAdjust[2] = false;
+                    highlightAdjust[3] = true;
+
+                    bundle.type = Types::DataType::SCREEN_CHANGE_REQUEST;
+                    Types::ScreenChangeRequest request{
+                            currentPomodoroState,
+                            currentSysState,
+                            {minutes, seconds}
+                        };
+                    bundle.value = static_cast<void*>(&request);
+
+                    adjustBuffer[0] = seconds % 10;
+                    adjustBuffer[1] = seconds / 10;
+                    adjustBuffer[2] = minutes % 10;
+                    adjustBuffer[3] = minutes / 10;
+                    xQueueSendToBack(Queues::displayQueue, &bundle, portMAX_DELAY);
+                    xSemaphoreTake(Semaphores::displayPomodoroHandshakeSemaphore, portMAX_DELAY);
+                    startTick = false;
+                }
+
+                xQueueReceive(Queues::interactionEventQueue, &receivedEvent, portMAX_DELAY);
+                if(receivedEvent == FROM_TOUCH1)
+                {
+                    uint32_t now = millis();
+                    if(now - lastTouch1ProcessedTime > DEBOUNCE_INTERVAL_MS)
+                    {
+                        lastTouch1ProcessedTime = now;
+                        if(adjustDigitsIndex > 0)
+                        {
+                            highlightAdjust[adjustDigitsIndex] = false;
+                            adjustDigitsIndex--;
+                            highlightAdjust[adjustDigitsIndex] = true;
+                        }
+                        else
+                        {
+                            highlightAdjust[0] = false;
+                            highlightAdjust[3] = true;
+                            adjustDigitsIndex = 3;
+
+                            switch(currentPomodoroState)
+                            {
+                                case Types::PomodoroState::FOCUS:
+                                    timerDurationFocus[0] = adjustBuffer[3]*10 + adjustBuffer[2];
+                                    timerDurationFocus[1] = adjustBuffer[1]*10 + adjustBuffer[0];
+                                    nextPomodoroState = Types::PomodoroState::SHORT_BREAK;
+                                    break;
+                                case Types::PomodoroState::SHORT_BREAK:
+                                    timerDurationShortBreak[0] = adjustBuffer[3]*10 + adjustBuffer[2];
+                                    timerDurationShortBreak[1] = adjustBuffer[1]*10 + adjustBuffer[0];
+                                    nextPomodoroState = Types::PomodoroState::LONG_BREAK;
+                                    break;
+                                case Types::PomodoroState::LONG_BREAK:
+                                    timerDurationLongBreak[0] = adjustBuffer[3]*10 + adjustBuffer[2];
+                                    timerDurationLongBreak[1] = adjustBuffer[1]*10 + adjustBuffer[0];
+                                    nextPomodoroState = Types::PomodoroState::FOCUS;
+                                    break;
+                            }
+                            startTick = true;
+                        }
+
+                        timeBundle.type = Types::DataType::ADJUST_TIME;
+                        Types::StopWatchTimeAdjustment timeAdjust;
+                        timeAdjust.minutes = adjustBuffer[3]*10 + adjustBuffer[2];
+                        timeAdjust.seconds = adjustBuffer[1]*10 + adjustBuffer[0];
+                        timeAdjust.highlight[0] = highlightAdjust[0];
+                        timeAdjust.highlight[1] = highlightAdjust[1];
+                        timeAdjust.highlight[2] = highlightAdjust[2];
+                        timeAdjust.highlight[3] = highlightAdjust[3];
+                        timeBundle.value = static_cast<void*>(&timeAdjust);
+                        xQueueSendToBack(Queues::displayQueue, &timeBundle, portMAX_DELAY);
+                    }
+                }
+
+                else if(receivedEvent == FROM_TOUCH2)
+                {
+                    uint32_t now = millis();
+                    if(now - lastTouch2ProcessedTime > DEBOUNCE_INTERVAL_MS)
+                    {
+                        Serial.println("Incrementing digit...");
+                        lastTouch2ProcessedTime = now;
+
+                        adjustBuffer[adjustDigitsIndex] = (adjustBuffer[adjustDigitsIndex] + 1) % 10;
+
+                        timeBundle.type = Types::DataType::ADJUST_TIME;
+                        Types::StopWatchTimeAdjustment timeAdjust;
+                        timeAdjust.minutes = adjustBuffer[3]*10 + adjustBuffer[2];
+                        timeAdjust.seconds = adjustBuffer[1]*10 + adjustBuffer[0];
+                        timeAdjust.highlight[0] = highlightAdjust[0];
+                        timeAdjust.highlight[1] = highlightAdjust[1];
+                        timeAdjust.highlight[2] = highlightAdjust[2];
+                        timeAdjust.highlight[3] = highlightAdjust[3];
+                        timeBundle.value = static_cast<void*>(&timeAdjust);
+                        xQueueSendToBack(Queues::displayQueue, &timeBundle, portMAX_DELAY);
+                    }
+                }
+
+                else if(receivedEvent == FROM_BUTTON)
+                {
+                    switch(currentPomodoroState)
+                    {
+                        case Types::PomodoroState::FOCUS:
+                            timerDurationFocus[0] = adjustBuffer[3]*10 + adjustBuffer[2];
+                            timerDurationFocus[1] = adjustBuffer[1]*10 + adjustBuffer[0];
+                            minutes = timerDurationFocus[0];
+                            seconds = timerDurationFocus[1];
+                            break;
+                        case Types::PomodoroState::SHORT_BREAK:
+                            timerDurationShortBreak[0] = adjustBuffer[3]*10 + adjustBuffer[2];
+                            timerDurationShortBreak[1] = adjustBuffer[1]*10 + adjustBuffer[0];
+                            minutes = timerDurationShortBreak[0];
+                            seconds = timerDurationShortBreak[1];
+                            break;
+                        case Types::PomodoroState::LONG_BREAK:
+                            timerDurationLongBreak[0] = adjustBuffer[3]*10 + adjustBuffer[2];
+                            timerDurationLongBreak[1] = adjustBuffer[1]*10 + adjustBuffer[0];
+                            minutes = timerDurationLongBreak[0];
+                            seconds = timerDurationLongBreak[1];
+                            break;
+                    }
+                    nextSysState = Types::SystemState::TIMER;
+                    xNextWakeTime = xTaskGetTickCount() + xDelay;
+                    nextPomodoroState = currentPomodoroState;
+                    startTick = true;
+                }
+            }
+
+            else // Paused
+            {   
+                xQueueReceive(Queues::interactionEventQueue, &receivedEvent, portMAX_DELAY);
+                if (receivedEvent == FROM_BUTTON)
+                {
+                    nextSysState = Types::SystemState::TIMER;
+                    xNextWakeTime = xTaskGetTickCount() + xDelay;
+                }
+                else
+                {
+                    nextSysState = Types::SystemState::ADJUST;
+                    nextPomodoroState = Types::PomodoroState::FOCUS;
+                    startTick = true;
+                }
+            }
+
+            if(nextSysState != currentSysState || nextPomodoroState != currentPomodoroState)
+            {
+                Types::StateChangeRequest stateChangeRequest = {
+                    nextSysState,
+                    nextPomodoroState
+                };
+                xQueueSendToBack(Queues::systemStateQueue, &stateChangeRequest, 0);
+            }
+
+            currentPomodoroState = nextPomodoroState;
+            currentSysState = nextSysState;
         }
     }
     
@@ -248,7 +430,7 @@ namespace Tasks
         QueueHandle_t ldrSensorQueue = Queues::ldrSensorQueue;
         QueueHandle_t displayQueue = Queues::displayQueue;
         QueueHandle_t cameraInferenceQueue = Queues::cameraInferenceQueue;
-        QueueHandle_t SystemStateQueue = Queues::SystemStateQueue;
+        QueueHandle_t systemStateQueue = Queues::systemStateQueue;
 
         // Queue set
         QueueSetHandle_t brainQueueSet = xQueueCreateSet(6); 
@@ -258,9 +440,15 @@ namespace Tasks
         xQueueAddToSet(pirSensorQueue, brainQueueSet);
         xQueueAddToSet(ldrSensorQueue, brainQueueSet);
         xQueueAddToSet(cameraInferenceQueue, brainQueueSet);
-        xQueueAddToSet(SystemStateQueue, brainQueueSet);
+        xQueueAddToSet(systemStateQueue, brainQueueSet);
 
         QueueSetMemberHandle_t xActivatedMember;
+
+        // Initial state: ADJUST
+        vTaskPrioritySet(handleDisplayTask, 4);
+        xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING );
+        xEventGroupSetBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
+        ISR::detachPIRISR();
 
         for(;;)
         {
@@ -335,7 +523,18 @@ namespace Tasks
                             cameraDetections++;
                             Serial.println("Face detection counted!");
                         }
-                        recalculateFocusIndex = true;
+
+                        if(currentSystemState.sysState == Types::SystemState::TIMER)
+                            recalculateFocusIndex = true;
+                      
+                        else if(currentSystemState.sysState == Types::SystemState::ADJUST)
+                        {
+                            Types::DisplayData displayDataCamOnAdjust;
+                            displayDataCamOnAdjust.type = Types::DataType::CAM_DETECTION_ON_ADJUST;
+                            displayDataCamOnAdjust.value = static_cast<void*>(&faceDetected);
+                            xQueueSendToBack(displayQueue, &displayDataCamOnAdjust, 0);
+                        }
+
                         detectionDebounce = false;
                         debounceCounter = 0;
                         cameraEvents++;
@@ -343,38 +542,40 @@ namespace Tasks
                 }
             }
 
-            if(xActivatedMember == SystemStateQueue) 
+            if(xActivatedMember == systemStateQueue) 
             {
-                if(xQueueReceive(SystemStateQueue, &currentSystemState, 0) == pdTRUE)
+                if(xQueueReceive(systemStateQueue, &currentSystemState, 0) == pdTRUE)
                 {
                     switch(currentSystemState.sysState)
                     {
                         case Types::SystemState::TIMER:
                             Serial.println("System State changed to TIMER");
+                            vTaskPrioritySet(handleDisplayTask, 2);
                             if(currentSystemState.pomodoroState == Types::PomodoroState::FOCUS) 
                             {
                                 ISR::attachPIRISR();
-                                vTaskResume(handleCameraInferenceTask);
-                                vTaskResume(handleDHTSensorTask);
-                                vTaskResume(handlePIRSensorTask);
-                                vTaskResume(handleLDRSensorTask);
+                                xEventGroupSetBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING );
+                                xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
+                            }
+                            else 
+                            {
+                                ISR::detachPIRISR();
+                                xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING);
+                                xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
                             }
                             break;
                         case Types::SystemState::ADJUST:
                             Serial.println("System State changed to ADJUST");
-                            vTaskResume(handleCameraInferenceTask);
-                            vTaskSuspend(handleDHTSensorTask);
-                            vTaskSuspend(handlePIRSensorTask);
-                            vTaskSuspend(handleLDRSensorTask);
+                            vTaskPrioritySet(handleDisplayTask, 4);
+                            xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING );
+                            xEventGroupSetBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
                             ISR::detachPIRISR();
                             break;
                         case Types::SystemState::FINISHED:
                             Serial.println("System State changed to FINISHED");
                             xTaskCreatePinnedToCore(vBuzzerTask, "Task buzzer", 1024, NULL, 1, NULL, 1);
-                            vTaskSuspend(handleCameraInferenceTask);
-                            vTaskSuspend(handleDHTSensorTask);
-                            vTaskSuspend(handlePIRSensorTask);
-                            vTaskSuspend(handleLDRSensorTask);
+                            xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING);
+                            xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
                             ISR::detachPIRISR();
                             focusIndex = 0.0f;
                             motionEvents = 0;
@@ -383,10 +584,8 @@ namespace Tasks
                             break;
                         case Types::SystemState::PAUSED:
                             Serial.println("System State changed to PAUSED");
-                            vTaskSuspend(handleCameraInferenceTask);
-                            vTaskSuspend(handleDHTSensorTask);
-                            vTaskSuspend(handlePIRSensorTask);
-                            vTaskSuspend(handleLDRSensorTask);
+                            xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING);
+                            xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
                             ISR::detachPIRISR();
                             break;
                         default:
@@ -449,11 +648,16 @@ namespace Tasks
         float* floatBuffer = nullptr;
         int* intBuffer = nullptr;
 
+        int lastMin = -11;
+        int lastSec = -11;
+        int lastAdjIndex = -1;
+
         Adafruit_ILI9341* tft = new Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST, TFT_MISO);
 
         tft->begin();
         tft->setRotation(1);
         xSemaphoreGive(Semaphores::displayPomodoroHandshakeSemaphore);
+
         for(;;)
         {
             if(xQueueReceive(myQueue, &displayData, portMAX_DELAY) == pdTRUE)
@@ -478,28 +682,38 @@ namespace Tasks
                         Display::vPrintLuminosity(tft, *floatBuffer);
                         break;
                     }
-                    case Types::DataType::TIME_0:
+                    case Types::DataType::UPDATE_TIME:
                     {
-                        intBuffer = (int*) (displayData.value);
-                        Display::vPrintTime(tft, Types::DataType::TIME_0, *intBuffer);
+                        // Lógica inteligente de dígitos: Só desenha se mudar
+                        int newMin = ((Types::StopWatchTime*)displayData.value)->minutes;
+                        int newSec = ((Types::StopWatchTime*)displayData.value)->seconds;
+
+                        if (newMin / 10 != lastMin / 10) 
+                            Display::vPrintTime(tft, 3, newMin / 10);
+                        
+                        if (newMin % 10 != lastMin % 10) 
+                            Display::vPrintTime(tft, 2, newMin % 10);
+
+                        if (newSec / 10 != lastSec / 10) 
+                            Display::vPrintTime(tft, 1, newSec / 10);
+
+                        if (newSec % 10 != lastSec % 10) 
+                            Display::vPrintTime(tft, 0, newSec % 10);
+
+                        lastMin = newMin;
+                        lastSec = newSec;
                         break;
                     }
-                    case Types::DataType::TIME_1:
+                    case Types::DataType::ADJUST_TIME:
                     {
-                        intBuffer = (int*) (displayData.value);
-                        Display::vPrintTime(tft, Types::DataType::TIME_1, *intBuffer);
-                        break;
-                    }
-                    case Types::DataType::TIME_2:
-                    {
-                        intBuffer = (int*) (displayData.value);
-                        Display::vPrintTime(tft, Types::DataType::TIME_2, *intBuffer);
-                        break;
-                    }
-                    case Types::DataType::TIME_3:
-                    {
-                        intBuffer = (int*) (displayData.value);
-                        Display::vPrintTime(tft, Types::DataType::TIME_3, *intBuffer);
+                        int m = (int) ((Types::StopWatchTime*)displayData.value)->minutes;
+                        int s = (int) ((Types::StopWatchTime*)displayData.value)->seconds;
+                        bool* h = (bool*) ((Types::StopWatchTimeAdjustment*)displayData.value)->highlight;
+                        
+                        Display::vPrintTimerAdjustment(tft, 3, m / 10, h[3]);
+                        Display::vPrintTimerAdjustment(tft, 2, m % 10, h[2]);
+                        Display::vPrintTimerAdjustment(tft, 1, s / 10, h[1]);
+                        Display::vPrintTimerAdjustment(tft, 0, s % 10, h[0]);
                         break;
                     }
                     case Types::DataType::FOCUS_INDEX:
@@ -514,30 +728,6 @@ namespace Tasks
                         Display::vPrintComfortIndex(tft, *floatBuffer);
                         break;
                     }
-                    case Types::DataType::ADJ_TIME_0:
-                    {
-                        intBuffer = (int*) (displayData.value);
-                        Display::vPrintTimerAdjustment(tft, Types::DataType::ADJ_TIME_0, *intBuffer);
-                        break;
-                    }
-                    case Types::DataType::ADJ_TIME_1:
-                    {
-                        intBuffer = (int*) (displayData.value);
-                        Display::vPrintTimerAdjustment(tft, Types::DataType::ADJ_TIME_1, *intBuffer);
-                        break;
-                    }
-                    case Types::DataType::ADJ_TIME_2:
-                    {
-                        intBuffer = (int*) (displayData.value);
-                        Display::vPrintTimerAdjustment(tft, Types::DataType::ADJ_TIME_2, *intBuffer);
-                        break;
-                    }
-                    case Types::DataType::ADJ_TIME_3:
-                    {
-                        intBuffer = (int*) (displayData.value);
-                        Display::vPrintTimerAdjustment(tft, Types::DataType::ADJ_TIME_3, *intBuffer);
-                        break;
-                    }
                     case Types::DataType::SCREEN_CHANGE_REQUEST:
                     {
                         Types::ScreenChangeRequest screenChange = *(Types::ScreenChangeRequest*)displayData.value;
@@ -547,9 +737,13 @@ namespace Tasks
                         {
                             case Types::SystemState::TIMER:
                                 Display::vInitializeTimerDisplay(tft, newPomodoroState);
+                                lastMin = -11; 
+                                lastSec = -11;
                                 break;
                             case Types::SystemState::ADJUST:
                                 Display::vPrintAdjustingTimer(tft, newPomodoroState, screenChange.timerCount[0], screenChange.timerCount[1]);
+                                lastMin = screenChange.timerCount[0]; 
+                                lastSec = screenChange.timerCount[1];
                                 break;
                             case Types::SystemState::FINISHED:
                                 Display::vPrintStateFinished(tft, newPomodoroState);
@@ -557,7 +751,14 @@ namespace Tasks
                             default:
                                 break;
                         }
+
                         xSemaphoreGive(Semaphores::displayPomodoroHandshakeSemaphore);
+                        break;
+                    }
+                    case Types::DataType::CAM_DETECTION_ON_ADJUST:
+                    {
+                        bool* camDetect = (bool*) (displayData.value);
+                        Display::vPrintFaceDetectedOnAdjustment(tft, *camDetect);
                         break;
                     }
                     default:
@@ -576,10 +777,10 @@ namespace Tasks
         bool detected = false;
         float taxa = 0.0;
 
-        TickType_t xLastWakeTime = xTaskGetTickCount();
-
         for(;;)
         {
+            xEventGroupWaitBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING | SystemSync::BIT_SYSTEM_ADJUST, pdFALSE, pdTRUE, portMAX_DELAY);
+
             fb = esp_camera_fb_get();
             detected = faceDetect(fb, &acc);
             if(detected) 
@@ -595,7 +796,7 @@ namespace Tasks
             Serial.println("Camera inference data sent!");
 
             esp_camera_fb_return(fb);
-            vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(CAMERA_TASK_DELAY_MS));
+            vTaskDelay(pdMS_TO_TICKS(CAMERA_TASK_DELAY_MS));
         }
     }
 
@@ -614,9 +815,9 @@ namespace Tasks
         // A little delay for the sensor to stabilize
         vTaskDelay(pdMS_TO_TICKS(2000));
 
-        TickType_t xLastWakeTime = xTaskGetTickCount();
         for(;;) 
         {
+            xEventGroupWaitBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING,pdFALSE, pdTRUE, portMAX_DELAY);
             float h = dhtSensor.readHumidity();
             float t = dhtSensor.readTemperature();
 
@@ -634,7 +835,7 @@ namespace Tasks
                 Serial.println("DHT data sent!");
             }
 
-            vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(DHT_TASK_DELAY_MS));
+            vTaskDelay(pdMS_TO_TICKS(DHT_TASK_DELAY_MS));
         }
     }
 
@@ -647,6 +848,8 @@ namespace Tasks
 
         for(;;)
         {
+            xEventGroupWaitBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING,pdFALSE, pdTRUE, portMAX_DELAY);
+            xLastWakeTime = xTaskGetTickCount();
             while(xSemaphoreTake(Semaphores::pirEventSemaphore, 0) == pdTRUE)
             {
                 pirValue++;
@@ -658,6 +861,7 @@ namespace Tasks
             Serial.println("PIR value sent!");
             pirValue = 0;
 
+            // Timing isn't THAT necessary here, but as the output time resolution is taken as 10 seconds for calculations, we keep it.
             vTaskDelayUntil(&xLastWakeTime,pdMS_TO_TICKS(PIR_TASK_DELAY_MS));
         }
     }
@@ -666,13 +870,14 @@ namespace Tasks
     {
         int ldrValue = 0;
         QueueHandle_t ldrSensorQueue = Queues::ldrSensorQueue;
-        TickType_t xLastWakeTime = xTaskGetTickCount();
+
         for(;;)
         {
+            xEventGroupWaitBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING,pdFALSE, pdTRUE, portMAX_DELAY);
             ldrValue = analogRead(PIN_IN_ANLG);
             xQueueOverwrite(ldrSensorQueue, &ldrValue);
             Serial.println("LDR value sent!");
-            vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(LDR_TASK_DELAY_MS));
+            vTaskDelay(pdMS_TO_TICKS(LDR_TASK_DELAY_MS));
         }
     }
 

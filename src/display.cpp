@@ -152,7 +152,7 @@ namespace Display
         tft->print(buffer);
     }
 
-    void vPrintTime(Adafruit_ILI9341 *tft, Types::DataType pos, int value)
+    void vPrintTime(Adafruit_ILI9341 *tft, int pos, int value)
     {
         char buffer[20];
         int posX = 0;
@@ -160,10 +160,10 @@ namespace Display
 
         switch (pos)
         {
-        case Types::DataType::TIME_3: posX = 102; break;
-        case Types::DataType::TIME_2: posX = 128; break;
-        case Types::DataType::TIME_1: posX = 166; break;
-        case Types::DataType::TIME_0: posX = 192; break;
+        case 3: posX = 102; break;
+        case 2: posX = 128; break;
+        case 1: posX = 166; break;
+        case 0: posX = 192; break;
         default: break;
         }
 
@@ -257,12 +257,13 @@ namespace Display
         tft->print(":");
 
         tft->setFont(&FreeSansBold24pt7b);
-        tft->setTextColor(0x73AF);
+        tft->setTextColor(0xFFFF);
         tft->setTextSize(2);
         tft->setCursor(44, 175);
         snprintf(numBuffer, sizeof(numBuffer), "%d", minutes / 10);
         tft->print(numBuffer);
 
+        tft->setTextColor(0x73AF);
         tft->setCursor(96, 175);
         snprintf(numBuffer, sizeof(numBuffer), "%d", minutes % 10);
         tft->print(numBuffer);
@@ -285,30 +286,31 @@ namespace Display
         tft->setTextColor(0x0);
         tft->setTextSize(1);
         tft->setFont(&FreeSansBold12pt7b);
-        tft->setCursor(72, 83);
-        tft->print("SHORT BREAK");
+        tft->setCursor(cursorX, 83);
+        tft->print(buffer);
     }
 
 
-    void vPrintTimerAdjustment(Adafruit_ILI9341 *tft, Types::DataType pos, int value)
+    void vPrintTimerAdjustment(Adafruit_ILI9341 *tft, int pos, int value, bool highlight)
     {
         char buffer[20];
         int posX = 0;
+        int color = highlight ? 0xFFFF : 0x73AF;
         snprintf(buffer, sizeof(buffer), "%d", value);
 
         switch (pos)
         {
-        case Types::DataType::ADJ_TIME_3: posX = 44; break;
-        case Types::DataType::ADJ_TIME_2: posX = 96; break;
-        case Types::DataType::ADJ_TIME_1: posX = 172; break;
-        case Types::DataType::ADJ_TIME_0: posX = 224; break;
+        case 3: posX = 44; break;
+        case 2: posX = 96; break;
+        case 1: posX = 172; break;
+        case 0: posX = 224; break;
         default: break;
         }
 
         tft->fillRect(posX, 105, 45, 75, 0x0000);
 
         tft->setFont(&FreeSansBold24pt7b);
-        tft->setTextColor(0xFFFF);
+        tft->setTextColor(color);
         tft->setTextSize(2);
         tft->setCursor(posX, 175);
         tft->print(buffer);

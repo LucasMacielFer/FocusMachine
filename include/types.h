@@ -9,17 +9,12 @@ namespace Types
         TEMPERATURE,
         HUMIDITY,
         LUMINOSITY,
-        TIME_0,         // Stopwatch digits
-        TIME_1,
-        TIME_2,
-        TIME_3,
+        UPDATE_TIME,
+        ADJUST_TIME,
         FOCUS_INDEX,
         COMFORT_INDEX,
-        ADJ_TIME_0,
-        ADJ_TIME_1,
-        ADJ_TIME_2,
-        ADJ_TIME_3,     // Stopwatch digits to adjust
-        SCREEN_CHANGE_REQUEST
+        SCREEN_CHANGE_REQUEST,
+        CAM_DETECTION_ON_ADJUST
     };
 
     enum class PomodoroState
@@ -42,6 +37,13 @@ namespace Types
         int minutes;
         int seconds;
     } StopWatchTime;
+
+    typedef struct
+    {
+        int minutes;
+        int seconds;
+        bool highlight[4];
+    } StopWatchTimeAdjustment;
 
     typedef struct
     {

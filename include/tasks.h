@@ -12,6 +12,7 @@
 #include "classification.h"
 #include "display.h"
 #include "ISR.h"
+#include "system_sync.h"
 
 // Sensor lib
 #include <DHT.h>
@@ -19,8 +20,8 @@
 #define CAMERA_DEBOUNCE_THRESHOLD 3
 #define DHT_TASK_DELAY_MS 2000
 #define PIR_TASK_DELAY_MS 10000
-#define LDR_TASK_DELAY_MS 500
-#define CAMERA_TASK_DELAY_MS 200
+#define LDR_TASK_DELAY_MS 1000
+#define CAMERA_TASK_DELAY_MS 300
 #define POMODORO_TASK_DELAY_MS 1000
 
 namespace Tasks 
