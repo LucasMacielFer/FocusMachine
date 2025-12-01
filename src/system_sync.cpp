@@ -7,6 +7,7 @@ namespace SystemSync
     void initializeSystemSync()
     {
         runStateGroup = xEventGroupCreate();
-        xEventGroupSetBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING);
+        xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING);
+        xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
     }
 } // namespace SystemSync

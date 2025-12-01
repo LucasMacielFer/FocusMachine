@@ -61,14 +61,7 @@ namespace Types
     {
         uint16_t idleTicks;
         uint16_t totalTicks;
-    } SystemMetrics;
-
-    typedef struct
-    {
-        SystemState sysState;
-        PomodoroState pomodoroState;
-    } StateChangeRequest;
-    
+    } SystemMetrics;    
 
     typedef struct
     {

@@ -4,7 +4,6 @@ namespace Semaphores
 {
     SemaphoreHandle_t displayPomodoroHandshakeSemaphore = nullptr;
     SemaphoreHandle_t pirEventSemaphore = nullptr;
-    SemaphoreHandle_t displayBrainHandshakeSemaphore = nullptr;
 
     void vCreateSemaphores(void)
     {

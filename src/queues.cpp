@@ -20,6 +20,6 @@ namespace Queues
         ldrSensorQueue = xQueueCreate(1, sizeof(int));
         cameraInferenceQueue = xQueueCreate(1, sizeof(bool));
         interactionEventQueue = xQueueCreate(3, sizeof(int));
-        systemStateQueue = xQueueCreate(1, sizeof(Types::StateChangeRequest));
+        systemStateQueue = xQueueCreate(3, sizeof(Types::SystemState));
     }
 } // namespace Queues

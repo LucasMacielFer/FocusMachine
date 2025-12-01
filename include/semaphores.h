@@ -7,6 +7,5 @@ namespace Semaphores
 {
     extern SemaphoreHandle_t displayPomodoroHandshakeSemaphore;
     extern SemaphoreHandle_t pirEventSemaphore;
-
     void vCreateSemaphores(void);
 } // namespace Semaphores

@@ -307,7 +307,7 @@ namespace Display
         default: break;
         }
 
-        tft->fillRect(posX, 105, 45, 75, 0x0000);
+        tft->fillRect(posX, 105, 52, 90, 0x0000);
 
         tft->setFont(&FreeSansBold24pt7b);
         tft->setTextColor(color);

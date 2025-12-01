@@ -37,7 +37,7 @@ namespace Tasks
 
     // Task function declarations
     void vPomodoroFSMTask(void* parameter);
-    void vBrainTask(void* parameter);
+    void vTelemetryTask(void* parameter);
     void vDisplayTask(void* parameter);
     void vCameraInferenceTask(void* parameter);
     void vDHTSensorTask(void* parameter);

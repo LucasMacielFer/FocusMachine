@@ -10,6 +10,10 @@ void setup()
 
     sensor_t * s = Camera::startCamera();
 
+    esp_log_level_set("gpio", ESP_LOG_NONE);
+    esp_log_level_set("camera", ESP_LOG_NONE);
+    esp_log_level_set("cam_hal", ESP_LOG_NONE);
+
     Pins::initializePins();
     Semaphores::vCreateSemaphores();
     Queues::vCreateQueues();
