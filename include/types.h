@@ -12,6 +12,7 @@ namespace Types
         UPDATE_TIME,
         ADJUST_TIME,
         FOCUS_INDEX,
+        FOCUS_INDEX_UPON_END,
         COMFORT_INDEX,
         SCREEN_CHANGE_REQUEST,
         CAM_DETECTION_ON_ADJUST
@@ -69,4 +70,11 @@ namespace Types
         SystemState systemState;
         int timerCount[2];
     } ScreenChangeRequest;
+
+    typedef struct
+    {
+        PomodoroState pomodoroState;
+        SystemState systemState;
+    } StateData;
+    
 } // namespace Types

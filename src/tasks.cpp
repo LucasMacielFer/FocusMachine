@@ -71,7 +71,8 @@ namespace Tasks
         Types::PomodoroState nextPomodoroState = currentPomodoroState;
         Types::SystemState currentSysState = Types::SystemState::ADJUST;
         Types::SystemState nextSysState = currentSysState;
-
+        
+        Types::StateData stateData;
         Types::DisplayData bundle;
         Types::DisplayData timeBundle;
 
@@ -117,7 +118,6 @@ namespace Tasks
                 {
                     if (receivedEvent == FROM_BUTTON) 
                     {
-                       //Serial.println("\n\n\n\nTimer paused by user.\n\n\n\n");
                         nextSysState = Types::SystemState::PAUSED;
                     }
                 }
@@ -199,7 +199,6 @@ namespace Tasks
                 }
 
                 nextSysState = Types::SystemState::TIMER;
-               //Serial.println("\n\n\n\n\nStarting new session...\n\n\n\n");
                 startTick = true;
             }
 
@@ -302,8 +301,6 @@ namespace Tasks
                             // Touch debounce on state change
                             nextInputAllowedTime = millis() + 4000;
                         }
-                        Serial.print("Selecting next digit to adjust: ");
-                        Serial.println(adjustDigitsIndex);
                     }
                 }
 
@@ -315,7 +312,6 @@ namespace Tasks
 
                     if(now - lastTouch2ProcessedTime > DEBOUNCE_INTERVAL_MS)
                     {
-                        Serial.println("Incrementing digit...");
                         lastTouch2ProcessedTime = now;
 
                         adjustBuffer[adjustDigitsIndex] = adjustDigitsIndex==0 || adjustDigitsIndex==2 ? (adjustBuffer[adjustDigitsIndex] + 1) % 10 : (adjustBuffer[adjustDigitsIndex] + 1) % 6;
@@ -384,7 +380,6 @@ namespace Tasks
                 switch(nextSysState)
                 {
                     case Types::SystemState::TIMER:
-                        Serial.println("System State changed to TIMER");
                         vTaskPrioritySet(handleDisplayTask, 2);
                         if(nextPomodoroState == Types::PomodoroState::FOCUS) 
                         {
@@ -399,21 +394,18 @@ namespace Tasks
                         xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
                         break;
                     case Types::SystemState::ADJUST:
-                        Serial.println("System State changed to ADJUST");
                         vTaskPrioritySet(handleDisplayTask, 4);
                         xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING );
                         xEventGroupSetBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
                         ISR::detachPIRISR();
                         break;
                     case Types::SystemState::FINISHED:
-                        Serial.println("System State changed to FINISHED");
                         xTaskCreatePinnedToCore(vBuzzerTask, "Task buzzer", 1024, NULL, 1, NULL, 1);
                         xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING);
                         xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
                         ISR::detachPIRISR();
                         break;
                     case Types::SystemState::PAUSED:
-                        Serial.println("System State changed to PAUSED");
                         xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING);
                         xEventGroupClearBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_ADJUST);
                         ISR::detachPIRISR();
@@ -421,7 +413,48 @@ namespace Tasks
                     default:
                         break;
                 }
-                xQueueSendToBack(Queues::systemStateQueue, &nextSysState, portMAX_DELAY);
+
+                stateData.pomodoroState = nextPomodoroState;
+                stateData.systemState = nextSysState;
+                xQueueSendToBack(Queues::systemStateQueue, &stateData, portMAX_DELAY);
+
+                xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                Serial.println("\n\nState changed!");
+                Serial.print("System State: ");
+                switch(nextSysState)
+                {
+                    case Types::SystemState::ADJUST:
+                        Serial.println("ADJUST");
+                        break;
+                    case Types::SystemState::TIMER:
+                        Serial.println("TIMER");
+                        break;
+                    case Types::SystemState::PAUSED:
+                        Serial.println("PAUSED");
+                        break;
+                    case Types::SystemState::FINISHED:
+                        Serial.println("FINISHED");
+                        break;
+                    default:
+                        break;
+                }
+                Serial.print("Pomodoro State: ");
+                switch(nextPomodoroState)
+                {
+                    case Types::PomodoroState::FOCUS:
+                        Serial.println("FOCUS");
+                        break;
+                    case Types::PomodoroState::SHORT_BREAK:
+                        Serial.println("SHORT_BREAK");
+                        break;
+                    case Types::PomodoroState::LONG_BREAK:
+                        Serial.println("LONG_BREAK");
+                        break;
+                    default:
+                        break;
+                }
+                Serial.print("\n\n");
+                xSemaphoreGive(Semaphores::serialMutex);
             }
 
             currentPomodoroState = nextPomodoroState;
@@ -462,26 +495,26 @@ namespace Tasks
         bool adjustingCamera = false;
 
         // Queue set
-        QueueSetHandle_t brainQueueSet = xQueueCreateSet(8); 
+        QueueSetHandle_t telemetryQueueSet = xQueueCreateSet(8); 
 
-        xQueueAddToSet(Queues::dhtSensorQueue, brainQueueSet);
-        xQueueAddToSet(Queues::sysMonitorQueue, brainQueueSet);
-        xQueueAddToSet(Queues::pirSensorQueue, brainQueueSet);
-        xQueueAddToSet(Queues::ldrSensorQueue, brainQueueSet);
-        xQueueAddToSet(Queues::cameraInferenceQueue, brainQueueSet);
-        xQueueAddToSet(Queues::systemStateQueue, brainQueueSet);
+        xQueueAddToSet(Queues::dhtSensorQueue, telemetryQueueSet);
+        xQueueAddToSet(Queues::sysMonitorQueue, telemetryQueueSet);
+        xQueueAddToSet(Queues::pirSensorQueue, telemetryQueueSet);
+        xQueueAddToSet(Queues::ldrSensorQueue, telemetryQueueSet);
+        xQueueAddToSet(Queues::cameraInferenceQueue, telemetryQueueSet);
+        xQueueAddToSet(Queues::systemStateQueue, telemetryQueueSet);
         QueueSetMemberHandle_t xActivatedMember;
 
         for(;;)
         {
-            xActivatedMember = xQueueSelectFromSet(brainQueueSet, portMAX_DELAY);
+            xActivatedMember = xQueueSelectFromSet(telemetryQueueSet, portMAX_DELAY);
 
             if(xActivatedMember == Queues::systemStateQueue) 
             {
-                Types::SystemState newState;
-                if(xQueueReceive(Queues::systemStateQueue, &newState, 0) == pdTRUE)
+                Types::StateData stateData;
+                if(xQueueReceive(Queues::systemStateQueue, &stateData, 0) == pdTRUE)
                 {
-                    if(newState == Types::SystemState::FINISHED) 
+                    if(stateData.systemState == Types::SystemState::FINISHED) 
                     {
                         motionEvents = 0;
                         cameraEvents = 0;
@@ -491,6 +524,13 @@ namespace Tasks
                         xQueueReset(Queues::pirSensorQueue);
                         xQueueReset(Queues::dhtSensorQueue);
                         xQueueReset(Queues::ldrSensorQueue);
+                        if(stateData.pomodoroState == Types::PomodoroState::FOCUS) 
+                        {
+                            Types::DisplayData displayDataFocusIndex;
+                            displayDataFocusIndex.type = Types::DataType::FOCUS_INDEX_UPON_END;
+                            displayDataFocusIndex.value = static_cast<void*>(&focusIndex);
+                            xQueueSendToBack(Queues::displayQueue, &displayDataFocusIndex, 0);
+                        }
                     }
 
                     xQueueReset(Queues::cameraInferenceQueue);
@@ -509,11 +549,13 @@ namespace Tasks
                     displayDataHum.type = Types::DataType::HUMIDITY;
                     displayDataHum.value = static_cast<void*>(&dhtData.humidity);
 
-                   //Serial.print("Temperature: ");
-                   //Serial.print(dhtData.temperature);
-                   //Serial.print(" °C, Humidity: ");
-                   //Serial.print(dhtData.humidity);
-                   //Serial.println(" %");
+                    xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                    Serial.print("Temperature: ");
+                    Serial.print(dhtData.temperature);
+                    Serial.print(" °C, Humidity: ");
+                    Serial.print(dhtData.humidity);
+                    Serial.println(" %");
+                    xSemaphoreGive(Semaphores::serialMutex);
 
                     xQueueSendToBack(Queues::displayQueue, &displayDataTemp, 0);
                     xQueueSendToBack(Queues::displayQueue, &displayDataHum, 0);
@@ -526,8 +568,10 @@ namespace Tasks
                 if(xQueueReceive(Queues::pirSensorQueue, &PIRdetections, 0) == pdTRUE)
                 {
                     motionEvents += PIRdetections;
-                   //Serial.print("PIR Detections: ");
-                   //Serial.println(PIRdetections);
+                    xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                    Serial.print("PIR Detections: ");
+                    Serial.println(PIRdetections);
+                    xSemaphoreGive(Semaphores::serialMutex);
                     recalculateComfortIndex = true;
                 }
             }
@@ -543,8 +587,10 @@ namespace Tasks
 
                     displayDataLdr.value = static_cast<void*>(&luminosityPercentage);
                     xQueueSendToBack(Queues::displayQueue, &displayDataLdr, 0);
-                   //Serial.print("Luminosity: ");
-                   //Serial.println(luminosity);
+                    xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                    Serial.print("Luminosity: ");
+                    Serial.println(luminosity);
+                    xSemaphoreGive(Semaphores::serialMutex);
                     recalculateComfortIndex = true;
                 }
             }
@@ -553,8 +599,6 @@ namespace Tasks
             {
                 if(xQueueReceive(Queues::cameraInferenceQueue, &faceDetected, 0) == pdTRUE)
                 {
-                    //Serial.println("Camera Inference Data Received");
-
                     if(faceDetected) 
                         detectionDebounce = true;
 
@@ -565,15 +609,12 @@ namespace Tasks
                         if(detectionDebounce) 
                         {
                             cameraDetections++;
-                           //Serial.println("Face detection counted!");
                         }
 
                         if(xEventGroupGetBits(SystemSync::runStateGroup) & SystemSync::BIT_SYSTEM_RUNNING)
-                        //if(!adjustingCamera)
                             recalculateFocusIndex = true;
                       
                         else if(xEventGroupGetBits(SystemSync::runStateGroup) & SystemSync::BIT_SYSTEM_ADJUST)
-                        //else
                         {
                             Types::DisplayData displayDataCamOnAdjust;
                             displayDataCamOnAdjust.type = Types::DataType::CAM_DETECTION_ON_ADJUST;
@@ -597,17 +638,20 @@ namespace Tasks
                     {
                         cpuUsage = 100.0f * (1.0f - ((float)sysMetrics.idleTicks / (float)sysMetrics.totalTicks));
                         
-                        // Opcional: Proteger contra valores negativos (se o clock do RTOS der um salto louco)
                         if (cpuUsage < 0.0f) cpuUsage = 0.0f;
                         if (cpuUsage > 100.0f) cpuUsage = 100.0f;
 
-                       //Serial.print("CPU Usage: ");
-                       //Serial.print(cpuUsage);
-                       //Serial.println(" %");
+                        xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                        Serial.print("CPU Usage: ");
+                        Serial.print(cpuUsage);
+                        Serial.println(" %");
+                        xSemaphoreGive(Semaphores::serialMutex);
                     }
                     else
                     {
-                       //Serial.println("Error: TotalTicks is 0");
+                        xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                        Serial.println("Error: TotalTicks is 0");
+                        xSemaphoreGive(Semaphores::serialMutex);
                     }
                 }
             }
@@ -620,6 +664,10 @@ namespace Tasks
                 displayDataComfort.value = static_cast<void*>(&comfortIndex);
                 xQueueSendToBack(Queues::displayQueue, &displayDataComfort, 0);
                 recalculateComfortIndex = false;
+                xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                Serial.print("Comfort Index: ");
+                Serial.println(comfortIndex);
+                xSemaphoreGive(Semaphores::serialMutex);
             }
 
             if(recalculateFocusIndex)
@@ -630,6 +678,10 @@ namespace Tasks
                 displayDataFocus.value = static_cast<void*>(&focusIndex);
                 xQueueSendToBack(Queues::displayQueue, &displayDataFocus, 0);
                 recalculateFocusIndex = false;
+                xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                Serial.print("Focus Index: ");
+                Serial.println(focusIndex);
+                xSemaphoreGive(Semaphores::serialMutex);
             }
         }
     }
@@ -716,6 +768,12 @@ namespace Tasks
                         Display::vPrintFocusIndex(tft, *floatBuffer);
                         break;
                     }
+                    case Types::DataType::FOCUS_INDEX_UPON_END:
+                    {
+                        floatBuffer = (float*) (displayData.value);
+                        Display::vPrintFocusIndexUponFocusEnd(tft, *floatBuffer);
+                        break;
+                    }
                     case Types::DataType::COMFORT_INDEX:
                     {
                         floatBuffer = (float*) (displayData.value);
@@ -746,7 +804,6 @@ namespace Tasks
                                 break;
                         }
 
-                        xQueueReset(Queues::displayQueue);
                         xSemaphoreGive(Semaphores::displayPomodoroHandshakeSemaphore);
                         break;
                     }
@@ -781,19 +838,21 @@ namespace Tasks
                 detected = faceDetect(fb, &acc);
             else
                 continue;
-                
+
             if(detected) 
             {
-               //Serial.printf("FACE DETECTED! Accuracy: %.2f%%\n", acc * 100);
+                xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                Serial.printf("FACE DETECTED! Accuracy: %.2f%%\n", acc * 100);
+                xSemaphoreGive(Semaphores::serialMutex);
             }
             else 
             {
-               //Serial.println("No face detected...");
+                xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                Serial.println("No face detected...");
+                xSemaphoreGive(Semaphores::serialMutex);
             }
 
             xQueueOverwrite(Queues::cameraInferenceQueue, &detected);
-           //Serial.println("Camera inference data sent!");
-
             esp_camera_fb_return(fb);
             vTaskDelay(pdMS_TO_TICKS(CAMERA_TASK_DELAY_MS));
         }
@@ -823,15 +882,15 @@ namespace Tasks
             // 4. Verificação de erros (isnan = is not a number)
             if(isnan(h) || isnan(t)) 
             {
-               //Serial.println("Failed to read from DHT!");
+                xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                Serial.println("Failed to read from DHT!");
+                xSemaphoreGive(Semaphores::serialMutex);
             } 
             else 
             {
                 dhtData.humidity = h;
                 dhtData.temperature = t;
-
                 xQueueOverwrite(dhtSensorQueue, &dhtData);
-               //Serial.println("DHT data sent!");
             }
 
             vTaskDelay(pdMS_TO_TICKS(DHT_TASK_DELAY_MS));
@@ -852,12 +911,10 @@ namespace Tasks
             while(xSemaphoreTake(Semaphores::pirEventSemaphore, 0) == pdTRUE)
             {
                 pirValue++;
-               //Serial.println("PIR Motion Detected!");
             }
 
             result = pirValue;
             xQueueOverwrite(pirSensorQueue, &result);
-           //Serial.println("PIR value sent!");
             pirValue = 0;
 
             // Timing isn't THAT necessary here, but as the output time resolution is taken as 10 seconds for calculations, we keep it.
@@ -875,7 +932,6 @@ namespace Tasks
             xEventGroupWaitBits(SystemSync::runStateGroup, SystemSync::BIT_SYSTEM_RUNNING,pdFALSE, pdTRUE, portMAX_DELAY);
             ldrValue = analogRead(PIN_IN_ANLG);
             xQueueOverwrite(ldrSensorQueue, &ldrValue);
-           //Serial.println("LDR value sent!");
             vTaskDelay(pdMS_TO_TICKS(LDR_TASK_DELAY_MS));
         }
     }
@@ -889,7 +945,6 @@ namespace Tasks
             ledcWrite(0, 0);   // Turn off
             vTaskDelay(pdMS_TO_TICKS(100));
         }
-       //Serial.println("Buzzer finished!");
         vTaskDelete(NULL);
     }
 
@@ -919,14 +974,13 @@ namespace Tasks
             
             Types::SystemMetrics msg;
             msg.idleTicks = localIdleCounter;
-            msg.totalTicks = totalTimePassed; // Isso será ~1000 (ms)
+            msg.totalTicks = totalTimePassed;
 
-            // Envia para a Queue
-            xQueueSend(Queues::sysMonitorQueue, &msg, 0);
+            // It's not an ISR, I know, but using this function avoids headaches
+            xQueueSendFromISR(Queues::sysMonitorQueue, &msg, NULL);
 
-            // Reseta para a próxima janela
             localIdleCounter = 0;
-            measurementStartTick = currentTick; // Novo marco zero
+            measurementStartTick = currentTick;
         }
 
         return true;
