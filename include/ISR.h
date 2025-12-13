@@ -14,10 +14,17 @@
 
 namespace ISR
 {
+    // Function to setup all ISRs
     void setupISRs();
+
+    // PIR ISR attach/detach functions
     void attachPIRISR();
     void detachPIRISR();
+
+    // ISR called upon PIR detection
     void IRAM_ATTR pirISR();
+    // ISR called upon button press
     void IRAM_ATTR buttonPressISR();
+    // ISR called upon touch1/touch2 events
     void IRAM_ATTR touchISR(void* arg);
 } // namespace ISR

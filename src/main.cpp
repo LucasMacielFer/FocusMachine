@@ -8,8 +8,10 @@ void setup()
     vTaskPrioritySet(NULL, configMAX_PRIORITIES - 1);
     Serial.begin(115200);
 
+    // Initialize camera
     sensor_t * s = Camera::startCamera();
 
+    // Disable camera and GPIO logs -> overflow-prone
     esp_log_level_set("gpio", ESP_LOG_NONE);
     esp_log_level_set("camera", ESP_LOG_NONE);
     esp_log_level_set("cam_hal", ESP_LOG_NONE);

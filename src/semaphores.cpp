@@ -6,6 +6,7 @@ namespace Semaphores
     SemaphoreHandle_t pirEventSemaphore = nullptr;
     SemaphoreHandle_t serialMutex = nullptr;
 
+    // Semaphore initializations
     void vCreateSemaphores(void)
     {
         displayPomodoroHandshakeSemaphore = xSemaphoreCreateBinary();

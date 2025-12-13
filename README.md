@@ -15,8 +15,8 @@ O projeto consiste em um temporizador inteligente que implementa o método Pomod
 
 # Firmware
 O Firmware do projeto é baseado em FreeRTOS. A arquitetura é baseada nas tasks:
-- BrainTask
 - PomodoroFSMTask
+- TelemetryTask
 - DisplayTask
 - DHTSensorTask
 - LDRSensorTask
@@ -24,4 +24,4 @@ O Firmware do projeto é baseado em FreeRTOS. A arquitetura é baseada nas tasks
 - CameraInferenceTask
 - BuzzerTask
 
-Diversos recursos inerentes ao Sistema Operativo em Tempo Real são explorados, como Idle Task Hook, Scheduler Tick Hook, Queues, Semaphores, Counting Semaphores, Mutexes, dentre outros.
+Diversos recursos inerentes ao Sistema Operativo em Tempo Real são explorados, como Idle Task Hook, Queues, Semaphores, Counting Semaphores, Mutexes, dentre outros.

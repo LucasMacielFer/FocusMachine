@@ -3,6 +3,7 @@
 
 namespace Algorithms 
 {
+    // Comfort index configuration structure
     struct ComfortConfig
     {
         // Temperature

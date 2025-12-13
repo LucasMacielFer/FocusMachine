@@ -4,6 +4,7 @@ namespace SystemSync
 {
     EventGroupHandle_t runStateGroup = nullptr;
 
+    // Event group initialization
     void initializeSystemSync()
     {
         runStateGroup = xEventGroupCreate();

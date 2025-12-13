@@ -2,11 +2,12 @@
 
 namespace Pins
 {
+    // Pin initializations
     void initializePins()
     {
         pinMode(PIN_PWM, OUTPUT);
         ledcAttachPin(PIN_PWM, 0);
-        ledcSetup(0, 500, 8); // Channel 0, 500 hZ, 8-bit resolution
+        ledcSetup(0, 1000, 8); // Channel 0, 1000 Hz, 8-bit resolution
         ledcWrite(0, 0);
 
         pinMode(PIN_IN_DIG, INPUT);

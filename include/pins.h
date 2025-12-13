@@ -22,5 +22,6 @@
 
 namespace Pins
 {
+    // Function to initialize all pins
     void initializePins();
 } // namespace Pins

@@ -2,6 +2,7 @@
 
 namespace ISR
 {
+    // Function to setup all ISRs
     void setupISRs()
     {
         attachInterrupt(digitalPinToInterrupt(PIN_IN_PIR), pirISR, RISING);
@@ -10,6 +11,7 @@ namespace ISR
         touchAttachInterruptArg(PIN_TOUCH2, touchISR, (void*) FROM_TOUCH2, TOUCH_THRESHOLD_2);
     }
 
+    // PIR ISR attach/detach functions
     void attachPIRISR()
     {
         attachInterrupt(digitalPinToInterrupt(PIN_IN_PIR), pirISR, RISING);
@@ -20,9 +22,12 @@ namespace ISR
         detachInterrupt(digitalPinToInterrupt(PIN_IN_PIR));
     }
 
+    // ISR called upon PIR detection
     void IRAM_ATTR pirISR()
     {
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+        // Signal the PIR event counter semaphore
         xSemaphoreGiveFromISR(Semaphores::pirEventSemaphore, &xHigherPriorityTaskWoken);
         if (xHigherPriorityTaskWoken == pdTRUE)
         {
@@ -30,6 +35,7 @@ namespace ISR
         }
     }
 
+    // ISR called upon button press
     void IRAM_ATTR buttonPressISR()
     {
         int source = FROM_BUTTON;
@@ -41,8 +47,10 @@ namespace ISR
         }
     }
     
+    // ISR called upon touch1/touch2 events
     void IRAM_ATTR touchISR(void* arg)
     {
+        // Each touch pin passes its identifier as argument
         int source = (int) arg;
         if(!touchInterruptGetLastStatus((int32_t) arg))
         {

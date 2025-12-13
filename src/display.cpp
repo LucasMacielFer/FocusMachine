@@ -2,11 +2,13 @@
 
 namespace Display
 {
+    // Clears the entire display
     void vClearDisplay(Adafruit_ILI9341 *tft)
     {
         tft->fillScreen(ILI9341_BLACK);
     }
 
+    // Initializes the timer display based on the current Pomodoro state
     void vInitializeTimerDisplay(Adafruit_ILI9341 *tft, Types::PomodoroState state)
     {
         int color;
@@ -44,6 +46,7 @@ namespace Display
         tft->setCursor(cursorX, 50);
         tft->print(buffer);
 
+        // Metrics section
         tft->setTextColor(0xFFFF);
         tft->setFont(&FreeSans9pt7b);
         tft->setCursor(20, 141);
@@ -78,6 +81,7 @@ namespace Display
         tft->print(":");
     }
 
+    // Prints the temperature on the display
     void vPrintTemperature(Adafruit_ILI9341 *tft, float temperature)
     {
         char buffer[20];
@@ -90,6 +94,7 @@ namespace Display
         tft->print(buffer);
     }
 
+    // Prints the humidity on the display
     void vPrintHumidity(Adafruit_ILI9341 *tft, float humidity)
     {
         char buffer[20];
@@ -102,6 +107,7 @@ namespace Display
         tft->print(buffer);
     }
 
+    // Prints the luminosity on the display
     void vPrintLuminosity(Adafruit_ILI9341 *tft, int luminosity)
     {
         char buffer[20];
@@ -114,6 +120,7 @@ namespace Display
         tft->print(buffer);
     }
 
+    // Prints the focus index on the display
     void vPrintFocusIndex(Adafruit_ILI9341 *tft, float focusIndex)
     {
         char buffer[20];
@@ -126,7 +133,7 @@ namespace Display
         tft->print(buffer);
     }
 
-
+    // Prints the focus index prominently when focus session ends
     void vPrintFocusIndexUponFocusEnd(Adafruit_ILI9341 *tft, float focusIndex)
     {
         char buffer[20];
@@ -140,6 +147,7 @@ namespace Display
         tft->print(buffer);
     }
 
+    // Prints the comfort index on the display
     void vPrintComfortIndex(Adafruit_ILI9341 *tft, float comfortIndex)
     {
         char buffer[20];
@@ -152,6 +160,10 @@ namespace Display
         tft->print(buffer);
     }
 
+    /* Prints the time on the display at the specified position
+    * "pos" indicates which digit to update 
+    * (0 = units of seconds, 1 = tens of seconds, 2 = units of minutes, 3 = tens of minutes)
+    */
     void vPrintTime(Adafruit_ILI9341 *tft, int pos, int value)
     {
         char buffer[20];
@@ -176,7 +188,7 @@ namespace Display
         tft->print(buffer);
     }
 
-
+    // Prints the "FINISH" message when a Pomodoro state ends
     void vPrintStateFinished(Adafruit_ILI9341 *tft, Types::PomodoroState state)
     {
         vClearDisplay(tft);
@@ -206,7 +218,10 @@ namespace Display
         tft->print("FINISH");
     }
 
-
+    /* Prints whether a face is detected during timer adjustment
+    *  The purpose of this is to help the user to know if the
+    *  camera is properly positioned.
+    */
     void vPrintFaceDetectedOnAdjustment(Adafruit_ILI9341 *tft, bool detected)
     {
         tft->setFont(&FreeSansBold12pt7b);
@@ -219,7 +234,7 @@ namespace Display
         tft->print("FACE DETECTED");
     }
 
-
+    // Prints the timer adjustment screen
     void vPrintAdjustingTimer(Adafruit_ILI9341 *tft, Types::PomodoroState state, int minutes, int seconds)
     {
         int color;
@@ -290,7 +305,7 @@ namespace Display
         tft->print(buffer);
     }
 
-
+    // Prints a specific digit of the timer adjustment screen
     void vPrintTimerAdjustment(Adafruit_ILI9341 *tft, int pos, int value, bool highlight)
     {
         char buffer[20];

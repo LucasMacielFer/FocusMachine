@@ -26,12 +26,6 @@
 
 namespace Tasks 
 {
-    // Idle task tag
-    extern uint16_t* pCounter;
-
-    // Handle for the idle task
-    extern TaskHandle_t xIdleTaskHandle;
-
     // Task initialization function
     void vTasksInitialize();
 
@@ -45,6 +39,6 @@ namespace Tasks
     void vLDRSensorTask(void* parameter);
     void vBuzzerTask(void* parameter);
 
-    // Hook function declarations
+    // Hook function declaration
     bool vSysMonitorIdleHook();
 }  // namespace Tasks

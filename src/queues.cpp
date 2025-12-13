@@ -11,6 +11,7 @@ namespace Queues
     QueueHandle_t interactionEventQueue = nullptr;
     QueueHandle_t systemStateQueue = nullptr;
 
+    // Queue initializations
     void vCreateQueues(void)
     {
         sysMonitorQueue = xQueueCreate(1, sizeof(Types::SystemMetrics));

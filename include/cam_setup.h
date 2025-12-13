@@ -32,6 +32,9 @@
 
 namespace Camera
 {
+    // Function to initialize camera configuration
     camera_config_t camera_init();
+
+    // Function to start the camera and return the sensor object
     sensor_t* startCamera();
 } // namespace Camera
