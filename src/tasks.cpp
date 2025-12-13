@@ -127,8 +127,6 @@ namespace Tasks
                     xLastWakeTime = xTaskGetTickCount();
                     startTick = false;
                 }
-
-                // Instead of suspending the task, we use a timed queue receive to allow event checking
                 
                 vTaskDelayUntil(&xLastWakeTime, xDelay);
 
