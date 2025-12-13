@@ -127,6 +127,8 @@ namespace Tasks
                     xLastWakeTime = xTaskGetTickCount();
                     startTick = false;
                 }
+
+                // Instead of suspending the task, we use a timed queue receive to allow event checking
                 
                 vTaskDelayUntil(&xLastWakeTime, xDelay);
 
@@ -511,7 +513,6 @@ namespace Tasks
 
         bool recalculateComfortIndex = false;
         bool recalculateFocusIndex = false;
-        bool adjustingCamera = false;
 
         // Queue set
         QueueSetHandle_t telemetryQueueSet = xQueueCreateSet(8); 
@@ -529,16 +530,16 @@ namespace Tasks
             // Wait indefinitely for any of the queues to have data
             xActivatedMember = xQueueSelectFromSet(telemetryQueueSet, portMAX_DELAY);
 
-                
+            /* Processes system state changes - read without xActivatedMember
+            * xActivatedMember check to prioritize state changes and prevent starvation
+            */
             if(xQueueReceive(Queues::systemStateQueue, &stateData, 0) == pdTRUE)
             {
                 if(stateData.systemState == Types::SystemState::FINISHED) 
                 {
-                    motionEvents = 0;
-                    cameraEvents = 0;
-                    cameraDetections = 0;
                     recalculateComfortIndex = false;
                     recalculateFocusIndex = false;
+                    xQueueReset(Queues::cameraInferenceQueue);
                     xQueueReset(Queues::pirSensorQueue);
                     xQueueReset(Queues::dhtSensorQueue);
                     xQueueReset(Queues::ldrSensorQueue);
@@ -551,120 +552,143 @@ namespace Tasks
                     }
                 }
 
-                xQueueReset(Queues::cameraInferenceQueue);
+                else if(stateData.systemState == Types::SystemState::TIMER && stateData.pomodoroState == Types::PomodoroState::FOCUS) 
+                {
+                    motionEvents = 0;
+                    cameraEvents = 0;
+                    cameraDetections = 0;
+                    recalculateComfortIndex = true;
+                    recalculateFocusIndex = true;
+                    xQueueReset(Queues::cameraInferenceQueue);
+                    xQueueReset(Queues::pirSensorQueue);
+                }
             }
 
-            // Processes DHT sensor data
-            if(xQueueReceive(Queues::dhtSensorQueue, &dhtData, 0) == pdTRUE)
+            if(xActivatedMember == Queues::dhtSensorQueue) 
             {
                 Types::DisplayData displayDataTemp;
                 Types::DisplayData displayDataHum;
-                displayDataTemp.type = Types::DataType::TEMPERATURE;
-                displayDataTemp.value = static_cast<void*>(&dhtData.temperature);
-                displayDataHum.type = Types::DataType::HUMIDITY;
-                displayDataHum.value = static_cast<void*>(&dhtData.humidity);
 
-                xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
-                Serial.print("Temperature: ");
-                Serial.print(dhtData.temperature);
-                Serial.print(" °C, Humidity: ");
-                Serial.print(dhtData.humidity);
-                Serial.println(" %");
-                xSemaphoreGive(Semaphores::serialMutex);
-
-                if(xEventGroupGetBits(SystemSync::runStateGroup) & SystemSync::BIT_SYSTEM_RUNNING)
+                if(xQueueReceive(Queues::dhtSensorQueue, &dhtData, 0) == pdTRUE)
                 {
-                    xQueueSendToBack(Queues::displayQueue, &displayDataTemp, 0);
-                    xQueueSendToBack(Queues::displayQueue, &displayDataHum, 0);
+                    displayDataTemp.type = Types::DataType::TEMPERATURE;
+                    displayDataTemp.value = static_cast<void*>(&dhtData.temperature);
+                    displayDataHum.type = Types::DataType::HUMIDITY;
+                    displayDataHum.value = static_cast<void*>(&dhtData.humidity);
+
+                    xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                    Serial.print("Temperature: ");
+                    Serial.print(dhtData.temperature);
+                    Serial.print(" °C, Humidity: ");
+                    Serial.print(dhtData.humidity);
+                    Serial.println(" %");
+                    xSemaphoreGive(Semaphores::serialMutex);
+
+                    if(xEventGroupGetBits(SystemSync::runStateGroup) & SystemSync::BIT_SYSTEM_RUNNING)
+                    {
+                        xQueueSendToBack(Queues::displayQueue, &displayDataTemp, 0);
+                        xQueueSendToBack(Queues::displayQueue, &displayDataHum, 0);
+                    }
+                    recalculateComfortIndex = true;
                 }
-                recalculateComfortIndex = true;
             }
 
             // Processes PIR sensor data
-            if(xQueueReceive(Queues::pirSensorQueue, &PIRdetections, 0) == pdTRUE)
+            if(xActivatedMember == Queues::pirSensorQueue) 
             {
-                motionEvents += PIRdetections;
-                xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
-                Serial.print("PIR Detections: ");
-                Serial.println(PIRdetections);
-                xSemaphoreGive(Semaphores::serialMutex);
-                recalculateComfortIndex = true;
+                if(xQueueReceive(Queues::pirSensorQueue, &PIRdetections, 0) == pdTRUE)
+                {
+                    motionEvents += PIRdetections;
+                    xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                    Serial.print("PIR Detections: ");
+                    Serial.println(PIRdetections);
+                    xSemaphoreGive(Semaphores::serialMutex);
+                    recalculateComfortIndex = true;
+                }
             }
-    
 
             // Processes LDR sensor data
-            if(xQueueReceive(Queues::ldrSensorQueue, &luminosity, 0) == pdTRUE)
+            if(xActivatedMember == Queues::ldrSensorQueue) 
             {
-                Types::DisplayData displayDataLdr;
-                displayDataLdr.type = Types::DataType::LUMINOSITY;
+                if(xQueueReceive(Queues::ldrSensorQueue, &luminosity, 0) == pdTRUE)
+                {
+                    Types::DisplayData displayDataLdr;
+                    displayDataLdr.type = Types::DataType::LUMINOSITY;
 
-                luminosityPercentage = (static_cast<float>(luminosity) / 4095.0f) * 100.0f;
+                    luminosityPercentage = (static_cast<float>(luminosity) / 4095.0f) * 100.0f;
 
-                displayDataLdr.value = static_cast<void*>(&luminosityPercentage);
+                    displayDataLdr.value = static_cast<void*>(&luminosityPercentage);
 
-                if(xEventGroupGetBits(SystemSync::runStateGroup) & SystemSync::BIT_SYSTEM_RUNNING)
-                    xQueueSendToBack(Queues::displayQueue, &displayDataLdr, 0);
+                    if(xEventGroupGetBits(SystemSync::runStateGroup) & SystemSync::BIT_SYSTEM_RUNNING)
+                        xQueueSendToBack(Queues::displayQueue, &displayDataLdr, 0);
 
-                xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
-                Serial.print("Luminosity: ");
-                Serial.println(luminosity);
-                xSemaphoreGive(Semaphores::serialMutex);
-                recalculateComfortIndex = true;
+                    xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                    Serial.print("Luminosity: ");
+                    Serial.println(luminosity);
+                    xSemaphoreGive(Semaphores::serialMutex);
+                    recalculateComfortIndex = true;
+                }
             }
 
             // Processes camera inference results
-            if(xQueueReceive(Queues::cameraInferenceQueue, &faceDetected, 0) == pdTRUE)
+            if(xActivatedMember == Queues::cameraInferenceQueue) 
             {
-                if(faceDetected) 
-                    detectionDebounce = true;
-
-                debounceCounter++;
-
-                if(debounceCounter >= CAMERA_DEBOUNCE_THRESHOLD) 
+                if(xQueueReceive(Queues::cameraInferenceQueue, &faceDetected, 0) == pdTRUE)
                 {
-                    if(detectionDebounce) 
-                    {
-                        cameraDetections++;
-                    }
+                    if(faceDetected) 
+                        detectionDebounce = true;
 
-                    if(xEventGroupGetBits(SystemSync::runStateGroup) & SystemSync::BIT_SYSTEM_RUNNING)
-                        recalculateFocusIndex = true;
-                    
-                    else if(xEventGroupGetBits(SystemSync::runStateGroup) & SystemSync::BIT_SYSTEM_ADJUST)
-                    {
-                        Types::DisplayData displayDataCamOnAdjust;
-                        displayDataCamOnAdjust.type = Types::DataType::CAM_DETECTION_ON_ADJUST;
-                        displayDataCamOnAdjust.value = static_cast<void*>(&faceDetected);
-                        xQueueSendToBack(Queues::displayQueue, &displayDataCamOnAdjust, 0);
-                    }
+                    debounceCounter++;
 
-                    detectionDebounce = false;
-                    debounceCounter = 0;
-                    cameraEvents++;
+                    if(debounceCounter >= CAMERA_DEBOUNCE_THRESHOLD) 
+                    {
+                        if(detectionDebounce) 
+                        {
+                            cameraDetections++;
+                        }
+
+                        if(xEventGroupGetBits(SystemSync::runStateGroup) & SystemSync::BIT_SYSTEM_RUNNING)
+                            recalculateFocusIndex = true;
+                      
+                        else if(xEventGroupGetBits(SystemSync::runStateGroup) & SystemSync::BIT_SYSTEM_ADJUST)
+                        {
+                            Types::DisplayData displayDataCamOnAdjust;
+                            displayDataCamOnAdjust.type = Types::DataType::CAM_DETECTION_ON_ADJUST;
+                            displayDataCamOnAdjust.value = static_cast<void*>(&faceDetected);
+                            xQueueSendToBack(Queues::displayQueue, &displayDataCamOnAdjust, 0);
+                        }
+
+                        detectionDebounce = false;
+                        debounceCounter = 0;
+                        cameraEvents++;
+                    }
                 }
             }
 
             // Read system metrics
-            if(xQueueReceive(Queues::sysMonitorQueue, &sysMetrics, 0) == pdTRUE)
+            if(xActivatedMember == Queues::sysMonitorQueue) 
             {
-                if(sysMetrics.totalTicks > 0)
+                if(xQueueReceive(Queues::sysMonitorQueue, &sysMetrics, 0) == pdTRUE)
                 {
-                    cpuUsage = 100.0f * (1.0f - ((float)sysMetrics.idleTicks / (float)sysMetrics.totalTicks));
-                    
-                    if (cpuUsage < 0.0f) cpuUsage = 0.0f;
-                    if (cpuUsage > 100.0f) cpuUsage = 100.0f;
+                    if(sysMetrics.totalTicks > 0)
+                    {
+                        cpuUsage = 100.0f * (1.0f - ((float)sysMetrics.idleTicks / (float)sysMetrics.totalTicks));
+                        
+                        if (cpuUsage < 0.0f) cpuUsage = 0.0f;
+                        if (cpuUsage > 100.0f) cpuUsage = 100.0f;
 
-                    xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
-                    Serial.print("CPU Usage: ");
-                    Serial.print(cpuUsage);
-                    Serial.println(" %");
-                    xSemaphoreGive(Semaphores::serialMutex);
-                }
-                else
-                {
-                    xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
-                    Serial.println("Error: TotalTicks is 0");
-                    xSemaphoreGive(Semaphores::serialMutex);
+                        xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                        Serial.print("CPU Usage: ");
+                        Serial.print(cpuUsage);
+                        Serial.println(" %");
+                        xSemaphoreGive(Semaphores::serialMutex);
+                    }
+                    else
+                    {
+                        xSemaphoreTake(Semaphores::serialMutex, portMAX_DELAY);
+                        Serial.println("Error: TotalTicks is 0");
+                        xSemaphoreGive(Semaphores::serialMutex);
+                    }
                 }
             }
 
